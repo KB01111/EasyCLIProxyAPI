@@ -1,7 +1,7 @@
 import { authFileName, type AuthFileRecord } from './authFiles';
 import { normalizeAuthIndex } from './managementApi';
 import type { QuotaRow, QuotaState } from './quotaService';
-import type { AccountView, QuotaSummary } from './codexAccounts';
+import type { AccountView, QuotaSummary, Validity } from './codexAccounts';
 
 // Pure helpers that turn the shared quota service output into per-account entries
 // and the safe numeric summaries published to the Rust side. Nothing here fetches.
@@ -59,8 +59,10 @@ export function windowFromRow(row: QuotaRow): QuotaWindow {
  * existing quota labels. Code-review and add-on limits are returned as `extra`.
  */
 export function classifyCodexWindows(rows: readonly QuotaRow[]): ClassifiedWindows {
-  const main = rows.filter((row) => row.scope !== 'extra').map(windowFromRow);
-  const extra = rows.filter((row) => row.scope === 'extra').map(windowFromRow);
+  // Only rows explicitly scoped `main` are rate-limit windows. Spending limits and code-review/add-on
+  // rows (scope `extra`, or unscoped) never take part in short/long ranking.
+  const main = rows.filter((row) => row.scope === 'main').map(windowFromRow);
+  const extra = rows.filter((row) => row.scope !== 'main').map(windowFromRow);
   if (main.length === 0) return { short: null, long: null, extra };
   if (main.length === 1) {
     const [only] = main;
@@ -97,7 +99,7 @@ export function entryFromQuotaState(
 ): AccountQuotaEntry {
   if (state.status === 'success') {
     const windows = classifyCodexWindows(state.rows);
-    const hasValue = [windows.short, windows.long, ...windows.extra].some((w) => w?.remainingPct != null);
+    const hasValue = [windows.short, windows.long].some((w) => w?.remainingPct != null);
     return {
       ...windows,
       status: hasValue ? 'ok' : 'unavailable',
@@ -158,6 +160,25 @@ export function buildQuotaSummaries(
     const summary = entry ? toSummary(account.key, entry) : null;
     return summary ? [summary] : [];
   });
+}
+
+export type SeenAuth = { validity: Validity; lastRefresh: string | null };
+
+/**
+ * Accounts whose cached auth failure no longer applies because the credential improved
+ * (expired -> usable) or was re-issued (new refresh time), e.g. after Reauthenticate.
+ * Without this the failure would back off refreshes for the whole cache lifetime.
+ */
+export function staleAuthFailureKeys(
+  accounts: readonly Pick<AccountView, 'key' | 'validity' | 'lastRefresh'>[],
+  seen: Readonly<Record<string, SeenAuth | undefined>>,
+  entries: Readonly<Record<string, AccountQuotaEntry | undefined>>,
+): string[] {
+  return accounts.filter((account) => {
+    const before = seen[account.key];
+    if (!before || entries[account.key]?.status !== 'auth_error' || account.validity === 'expired') return false;
+    return before.validity === 'expired' || before.lastRefresh !== account.lastRefresh;
+  }).map((account) => account.key);
 }
 
 export const staleAfterMs = (refreshMinutes: number): number =>

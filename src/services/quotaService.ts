@@ -411,6 +411,7 @@ export const quotaRowsFor = (provider: QuotaProvider, payload: unknown): QuotaRo
         detail: used !== null && limit !== null
           ? `${quotaText('quota.service.usedOf', { used: format(used), limit: format(limit) })} ${readString(individual, 'unit')}`.trim()
           : undefined,
+        scope: 'extra',
       });
     }
     return rows;

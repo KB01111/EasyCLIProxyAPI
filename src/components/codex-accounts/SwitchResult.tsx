@@ -16,7 +16,15 @@ const BLOCKED_KEYS: Record<SwitchBlockCode, MessageKey> = {
   live_identity_unverifiable: 'codexAccounts.blocked.live_identity_unverifiable',
   target_unknown: 'codexAccounts.blocked.target_unknown',
   target_missing_credentials: 'codexAccounts.blocked.target_missing_credentials',
+  process_scan_failed: 'codexAccounts.blocked.process_scan_failed',
+  target_incomplete: 'codexAccounts.blocked.target_incomplete',
+  recovery_pending: 'codexAccounts.blocked.recovery_pending',
+  live_conflict: 'codexAccounts.blocked.live_conflict',
 };
+
+/** Codes from a newer backend may not be mapped yet: those fall back to the generic text plus the backend message. */
+const blockedKey = (code: string | null): MessageKey | null =>
+  code !== null && Object.prototype.hasOwnProperty.call(BLOCKED_KEYS, code) ? BLOCKED_KEYS[code as SwitchBlockCode] : null;
 
 type Props = {
   outcome: OutcomeView | null;
@@ -42,7 +50,7 @@ export function SwitchResult({ outcome, snapshot, busy, onDismiss, onAdoptLive, 
   if (result) {
     summary = result.status === 'switched' ? t('codexAccounts.result.switched', { alias })
       : result.status === 'unchanged' ? t('codexAccounts.result.unchanged', { alias })
-        : t(code ? BLOCKED_KEYS[code] : 'codexAccounts.blocked.generic', { processes });
+        : t(blockedKey(code) ?? 'codexAccounts.blocked.generic', { processes });
   }
 
   return (
@@ -83,11 +91,11 @@ export function SwitchResult({ outcome, snapshot, busy, onDismiss, onAdoptLive, 
                   {result.running.map((process) => <li key={process.pid}>{processLabel(process)}</li>)}
                 </ul>
               ) : null}
-              {code === null || !(code in BLOCKED_KEYS) ? <p className="cxa-muted">{result.message}</p> : null}
+              {blockedKey(code) === null ? <p className="cxa-muted" data-testid="backend-message">{privacy.text(result.message)}</p> : null}
               <div className="cxa-result-actions">
-                {code === 'codex_running' ? <button type="button" className="secondary-button compact-button" disabled={busy} onClick={onCheckAgain}><RefreshCw size={14} aria-hidden="true" />{t('codexAccounts.blocked.checkAgain')}</button> : null}
+                {code === 'codex_running' || code === 'process_scan_failed' || code === 'recovery_pending' ? <button type="button" className="secondary-button compact-button" disabled={busy} onClick={onCheckAgain}><RefreshCw size={14} aria-hidden="true" />{t('codexAccounts.blocked.checkAgain')}</button> : null}
                 {code === 'unknown_live_identity' ? <button type="button" className="primary-button compact-button" disabled={busy} onClick={onAdoptLive}><UserPlus size={14} aria-hidden="true" />{t('codexAccounts.adopt.action')}</button> : null}
-                {code === 'target_expired' || code === 'identity_mismatch' ? <button type="button" className="primary-button compact-button" onClick={onReauthenticate}><LogIn size={14} aria-hidden="true" />{t('codexAccounts.reauth.action')}</button> : null}
+                {code === 'target_expired' || code === 'identity_mismatch' || code === 'target_incomplete' || code === 'live_conflict' ? <button type="button" className="primary-button compact-button" onClick={onReauthenticate}><LogIn size={14} aria-hidden="true" />{t('codexAccounts.reauth.action')}</button> : null}
               </div>
             </div>
           ) : null}

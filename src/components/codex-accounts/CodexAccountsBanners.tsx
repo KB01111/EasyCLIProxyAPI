@@ -55,6 +55,7 @@ export function CodexAccountsBanners({ snapshot, recommendation, busy, onAcknowl
           actions={<button type="button" className="secondary-button compact-button" onClick={() => { dismissedRecoveryAt = recovery.at; setRecoveryHidden(recovery.at); }}>{t('codexAccounts.dismiss')}</button>}>
           <strong>{t(`codexAccounts.recovery.${recovery.outcome}` as const)}</strong>
           <span>{recovery.message}</span>
+          {recovery.outcome === 'deferred' ? <span data-testid="recovery-deferred-hint">{t('codexAccounts.recovery.deferredHint')}</span> : null}
         </Banner>
       ) : null}
       {native.live === 'unmanaged' ? (

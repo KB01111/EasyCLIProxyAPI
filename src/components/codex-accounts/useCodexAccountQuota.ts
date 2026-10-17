@@ -12,7 +12,9 @@ import {
   findAccountFile,
   runWithConcurrency,
   selectRefreshTargets,
+  staleAuthFailureKeys,
   type AccountQuotaEntry,
+  type SeenAuth,
 } from '../../services/codexAccountsQuota';
 import { dedupeAuthFiles, type AuthFileRecord } from '../../services/authFiles';
 import { managementApi, responseList } from '../../services/managementApi';
@@ -50,6 +52,8 @@ export function useCodexAccountQuota(snapshot: AccountsSnapshot | null, coreRead
   const running = useRef<Promise<void> | null>(null);
   const queued = useRef<RefreshOptions | null>(null);
   const lastPublished = useRef('');
+  const publishChain = useRef<Promise<void>>(Promise.resolve());
+  const seenAuth = useRef<Record<string, SeenAuth>>({});
   const publishTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const mounted = useRef(true);
   snapshotRef.current = snapshot;
@@ -60,7 +64,9 @@ export function useCodexAccountQuota(snapshot: AccountsSnapshot | null, coreRead
     if (mounted.current) setEntries(entriesRef.current);
   }, []);
 
-  const publish = useCallback(async () => {
+  // Backend publishes REPLACE the whole list. Calls run strictly one after another and each one
+  // reads the newest entries when it starts, so the last publish always carries the complete set.
+  const publishNow = useCallback(async () => {
     const current = snapshotRef.current;
     if (!current || !mounted.current) return;
     const summaries = buildQuotaSummaries(current.accounts, entriesRef.current);
@@ -76,6 +82,11 @@ export function useCodexAccountQuota(snapshot: AccountsSnapshot | null, coreRead
       lastPublished.current = '';
     }
   }, []);
+
+  const publish = useCallback((): Promise<void> => {
+    publishChain.current = publishChain.current.then(publishNow, publishNow);
+    return publishChain.current;
+  }, [publishNow]);
 
   const schedulePublish = useCallback(() => {
     clearTimeout(publishTimer.current);
@@ -117,6 +128,9 @@ export function useCodexAccountQuota(snapshot: AccountsSnapshot | null, coreRead
     // mark credentials without usable tokens; neither needs a request.
     const cache = getQuotaCacheSnapshot();
     const seeded: Record<string, AccountQuotaEntry> = { ...entriesRef.current };
+    for (const key of staleAuthFailureKeys(current.accounts, seenAuth.current, seeded)) delete seeded[key];
+    seenAuth.current = Object.fromEntries(current.accounts.map((account) =>
+      [account.key, { validity: account.validity, lastRefresh: account.lastRefresh }]));
     for (const account of current.accounts) {
       if (account.validity === 'expired') {
         if (seeded[account.key]?.status !== 'auth_error') seeded[account.key] = expiredCredentialEntry(nowMs);
@@ -142,10 +156,10 @@ export function useCodexAccountQuota(snapshot: AccountsSnapshot | null, coreRead
       setLoadingKeys((keys) => new Set([...keys, ...targets]));
       const generation = captureQuotaCacheGeneration();
       await runWithConcurrency(targets, QUOTA_CONCURRENCY, async (key) => {
-        const account = current.accounts.find((candidate) => candidate.key === key);
-        const file = account ? findAccountFile(account, filesRef.current) : undefined;
-        if (!account || !file) return;
         try {
+          const account = current.accounts.find((candidate) => candidate.key === key);
+          const file = account ? findAccountFile(account, filesRef.current) : undefined;
+          if (!account || !file) return;
           const state = await loadQuota(file);
           commitFetchedQuota(generation, file, state);
           const finishedAt = Date.now();

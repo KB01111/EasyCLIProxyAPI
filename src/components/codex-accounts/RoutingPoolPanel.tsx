@@ -96,8 +96,11 @@ export function RoutingPoolPanel({ snapshot, files, filesState, busy, askConfirm
       showNotice({ key: 'codexAccounts.pool.failed', variables: { message: errorText(failure) } }, 'error');
     } finally {
       setRecord(latest);
-      setApplying(false);
-      await onApplied();
+      try {
+        await onApplied();
+      } finally {
+        setApplying(false);
+      }
     }
   };
 

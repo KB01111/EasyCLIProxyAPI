@@ -55,7 +55,7 @@ export interface AccountsSnapshot {
   lastSwitch: { from: string | null; to: string; at: number } | null;
   externalChange: { from: string | null; to: string | null } | null;
   recovery: {
-    outcome: 'completed' | 'rolled_back' | 'diverged' | 'untouched' | 'failed';
+    outcome: 'completed' | 'rolled_back' | 'diverged' | 'untouched' | 'failed' | 'deferred';
     message: string;
     at: number;
   } | null;
@@ -67,7 +67,8 @@ export interface AccountsSnapshot {
 export type SwitchBlockCode =
   | 'target_unknown' | 'target_missing_credentials' | 'unsupported_store' | 'live_auth_corrupt'
   | 'api_key_mode' | 'live_identity_unverifiable' | 'unknown_live_identity' | 'codex_running'
-  | 'identity_mismatch' | 'target_expired';
+  | 'identity_mismatch' | 'target_expired' | 'process_scan_failed' | 'target_incomplete'
+  | 'recovery_pending' | 'live_conflict';
 
 export interface SwitchOutcome {
   status: 'switched' | 'unchanged' | 'blocked';
@@ -287,4 +288,36 @@ export function acceleratorFromKeyEvent(event: {
     event.shiftKey ? 'Shift' : '', event.metaKey ? 'Super' : '', key,
   ].filter(Boolean);
   return parts.join('+');
+}
+
+/**
+ * Serialises settings writes. The backend takes a full settings object, so every write is built
+ * from the newest saved value plus the caller's patch; two quick changes can never undo each other.
+ */
+export function createSettingsWriter(update: (settings: AccountSettings) => Promise<AccountSettings | void>) {
+  let saved: AccountSettings | null = null;
+  let inFlight = 0;
+  let queue: Promise<unknown> = Promise.resolve();
+  return {
+    /** Adopt the snapshot's settings unless a write is still pending. */
+    sync(settings: AccountSettings) { if (inFlight === 0) saved = settings; },
+    /** Resolves to an error message, or null on success. A failed write leaves the saved value unchanged. */
+    save(patch: Partial<AccountSettings>): Promise<string | null> {
+      inFlight += 1;
+      const run = async (): Promise<string | null> => {
+        try {
+          if (!saved) return 'Settings are not loaded yet.';
+          const next = { ...saved, ...patch };
+          const result = await update(next);
+          saved = result ?? next;
+          return null;
+        } catch (failure) {
+          return errorText(failure);
+        }
+      };
+      const result = queue.then(run, run).finally(() => { inFlight -= 1; });
+      queue = result;
+      return result;
+    },
+  };
 }

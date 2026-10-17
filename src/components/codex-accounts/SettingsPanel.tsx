@@ -15,7 +15,7 @@ const NONE = '';
 type Props = {
   snapshot: AccountsSnapshot;
   busy: boolean;
-  onSaveSettings: (settings: AccountSettings) => Promise<string | null>;
+  onSaveSettings: (patch: Partial<AccountSettings>) => Promise<string | null>;
   onSetPair: (primary: string | null, secondary: string | null) => void;
 };
 
@@ -76,7 +76,7 @@ export function SettingsPanel({ snapshot, busy, onSaveSettings, onSetPair }: Pro
     if (!Number.isInteger(value) || value < 1 || value > 1440) { setError(t('codexAccounts.settings.minutesInvalid')); return; }
     setSaving(true);
     setError(null);
-    const failure = await onSaveSettings({ ...settings, refreshMinutes: value, hotkey: hotkey.trim() || null });
+    const failure = await onSaveSettings({ refreshMinutes: value, hotkey: hotkey.trim() || null });
     setSaving(false);
     if (failure) {
       // The backend rejected it: keep showing the value that is actually in effect.
@@ -87,7 +87,7 @@ export function SettingsPanel({ snapshot, busy, onSaveSettings, onSetPair }: Pro
   };
   const toggle = async (patch: Partial<AccountSettings>) => {
     setError(null);
-    const failure = await onSaveSettings({ ...settings, ...patch });
+    const failure = await onSaveSettings(patch);
     if (failure) setError(failure);
   };
   const onHotkeyKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {

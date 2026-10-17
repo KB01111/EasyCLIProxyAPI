@@ -5,6 +5,7 @@ import type { ConfirmationOptions } from '../ConfirmationDialog';
 import {
   codexAccountsApi,
   computePinned,
+  createSettingsWriter,
   errorText,
   type AccountSettings,
   type AccountView,
@@ -35,6 +36,10 @@ export function useCodexAccountActions({ snapshot, refresh, showNotice, askConfi
   const [busy, setBusy] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<OutcomeView | null>(null);
   const busyRef = useRef<string | null>(null);
+  // Settings writes send a full object, so they are serialised and each one is built from the
+  // newest saved value; two quick toggles can then never undo each other.
+  const settingsWriter = useRef(createSettingsWriter((settings) => codexAccountsApi.updateSettings(settings)));
+  if (snapshot) settingsWriter.current.sync(snapshot.settings);
 
   const guarded = useCallback(async <T,>(label: string, task: () => Promise<T>): Promise<T | undefined> => {
     if (busyRef.current) return undefined;
@@ -132,15 +137,10 @@ export function useCodexAccountActions({ snapshot, refresh, showNotice, askConfi
   }, [refresh, showNotice, t]);
 
   /** Returns an error message to show next to the field, or null. The saved value only changes on success. */
-  const saveSettings = useCallback(async (next: AccountSettings): Promise<string | null> => {
-    try {
-      await codexAccountsApi.updateSettings(next);
-      await refresh(false);
-      return null;
-    } catch (failure) {
-      void refresh(false);
-      return errorText(failure);
-    }
+  const saveSettings = useCallback(async (patch: Partial<AccountSettings>): Promise<string | null> => {
+    const failure = await settingsWriter.current.save(patch);
+    await refresh(false);
+    return failure;
   }, [refresh]);
 
   const acknowledgeExternalChange = useCallback(() => guarded('ack', async () => {
