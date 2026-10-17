@@ -13,6 +13,7 @@ export type ModelOption = {
   contextWindow?: number;
   inputModalities?: Array<'text' | 'image'>;
   thinking?: Record<string, unknown>;
+  supportedEndpoints?: string[];
 };
 export type ModelProvider = 'gemini' | 'interactions' | 'vertex' | 'xai' | 'meta' | 'codex' | 'deepseek' | 'claude' | 'openai';
 
@@ -158,12 +159,17 @@ const normalizeModelList = (payload: unknown, preserveExistingAlias = false, pre
     const thinking = record && isRecord(record.thinking)
       ? normalizeThinkingConfig(record.thinking, !preserveExistingAlias)
       : undefined;
+    // Discovery-only: upstreams such as Command Code report the wire protocol each model accepts.
+    const supportedEndpoints = record && Array.isArray(record.supported_endpoints)
+      ? record.supported_endpoints.filter((endpoint): endpoint is string => typeof endpoint === 'string' && endpoint.trim() !== '')
+      : [];
     return {
       name,
       ...(preserveConfiguration && record ? { config: { ...record, ...(thinking ? { thinking } : {}) } } : {}),
       ...(alias && alias !== name ? { alias } : {}),
       ...(displayName && displayName !== name ? { displayName } : {}),
       ...(thinking && (preserveExistingAlias || Object.keys(thinking).length > 0) ? { thinking } : {}),
+      ...(supportedEndpoints.length ? { supportedEndpoints } : {}),
     };
   }).filter((item): item is ModelOption => item !== null);
 };

@@ -81,6 +81,10 @@ API 接入页面按照协议或 Provider 管理上游 API 凭证和服务地址�
 然后通过统一的本地 CLIProxyAPI 地址调用它们。请求和响应可以在 OpenAI、Claude、Gemini
 及其他兼容协议之间转换。
 
+使用“添加”旁边的**快速设置**，可以根据预设创建接入：Modal 共享端点、OpenCode Go 和 Zen、Command Code，
+以及多个 OpenAI 兼容服务（OpenRouter、Groq、Mistral AI、Moonshot AI、Z.ai、Cerebras 和 Together AI）。
+填写密钥后点击“查找模型”，确认每个模型的分配结果，再创建接入。预设只会生成普通接入，之后可以继续编辑。
+
 ### 插件管理
 
 **插件**页面支持已安装插件的启停、卸载和按字段类型编辑配置。可在插件商店安装、更新或指定
