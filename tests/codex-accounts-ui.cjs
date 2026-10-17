@@ -245,7 +245,7 @@ const path = require('node:path');
       await page.getByTestId('pool-mode-prefer-b').check();
       await page.getByTestId('pool-apply').click();
       await dialog.getByRole('button', { name: 'Apply' }).click();
-      await page.waitForFunction(() => /\b2\b/.test([...document.querySelectorAll('[data-testid=pool-table] tbody tr')].find(row => row.textContent.includes('codex-idle.json'))?.textContent || ''));
+      await page.waitForFunction(() => /\b3\b/.test([...document.querySelectorAll('[data-testid=pool-table] tbody tr')].find(row => row.textContent.includes('codex-idle.json'))?.textContent || ''));
       await page.close();
     }
 
