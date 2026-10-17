@@ -258,3 +258,31 @@ export async function runWithConcurrency<T>(
   };
   await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length) }, lane));
 }
+
+/**
+ * Publishes summaries one call at a time. `build` runs when the call starts (not when it was
+ * requested), so a slow earlier call can never finish after, and overwrite, a later complete one.
+ * Unchanged lists are skipped, and an empty first list is never sent (it would wipe fresher backend data).
+ */
+export function createSummaryPublisher(
+  build: () => QuotaSummary[] | null,
+  send: (summaries: QuotaSummary[]) => Promise<unknown>,
+) {
+  let chain: Promise<unknown> = Promise.resolve();
+  let last = '';
+  const once = async (): Promise<void> => {
+    const summaries = build();
+    if (!summaries) return;
+    const signature = JSON.stringify(summaries);
+    if (signature === last || (summaries.length === 0 && last === '')) return;
+    last = signature;
+    try { await send(summaries); } catch { last = ''; }
+  };
+  return {
+    publish(): Promise<void> {
+      const next = chain.then(once, once);
+      chain = next;
+      return next;
+    },
+  };
+}

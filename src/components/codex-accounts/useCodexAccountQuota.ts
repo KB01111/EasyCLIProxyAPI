@@ -7,6 +7,7 @@ import {
 } from '../../services/codexAccounts';
 import {
   buildQuotaSummaries,
+  createSummaryPublisher,
   entryFromQuotaState,
   expiredCredentialEntry,
   findAccountFile,
@@ -51,8 +52,6 @@ export function useCodexAccountQuota(snapshot: AccountsSnapshot | null, coreRead
   const filesRequest = useRef<Promise<AuthFileRecord[]> | null>(null);
   const running = useRef<Promise<void> | null>(null);
   const queued = useRef<RefreshOptions | null>(null);
-  const lastPublished = useRef('');
-  const publishChain = useRef<Promise<void>>(Promise.resolve());
   const seenAuth = useRef<Record<string, SeenAuth>>({});
   const publishTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const mounted = useRef(true);
@@ -64,29 +63,19 @@ export function useCodexAccountQuota(snapshot: AccountsSnapshot | null, coreRead
     if (mounted.current) setEntries(entriesRef.current);
   }, []);
 
-  // Backend publishes REPLACE the whole list. Calls run strictly one after another and each one
-  // reads the newest entries when it starts, so the last publish always carries the complete set.
-  const publishNow = useCallback(async () => {
-    const current = snapshotRef.current;
-    if (!current || !mounted.current) return;
-    const summaries = buildQuotaSummaries(current.accounts, entriesRef.current);
-    const signature = JSON.stringify(summaries);
-    if (signature === lastPublished.current) return;
-    // Publishing an empty list on first load would wipe fresher data the backend already holds.
-    if (summaries.length === 0 && lastPublished.current === '') return;
-    lastPublished.current = signature;
-    try {
+  // Backend publishes REPLACE the whole list; the publisher serialises calls and builds each one
+  // from the newest entries, so the last publish always carries the complete set.
+  const publisher = useRef(createSummaryPublisher(
+    () => {
+      const current = snapshotRef.current;
+      return current && mounted.current ? buildQuotaSummaries(current.accounts, entriesRef.current) : null;
+    },
+    async (summaries) => {
       const next = await codexAccountsApi.publishQuota(summaries);
       if (mounted.current) setRecommendation(next);
-    } catch {
-      lastPublished.current = '';
-    }
-  }, []);
-
-  const publish = useCallback((): Promise<void> => {
-    publishChain.current = publishChain.current.then(publishNow, publishNow);
-    return publishChain.current;
-  }, [publishNow]);
+    },
+  ));
+  const publish = useCallback(() => publisher.current.publish(), []);
 
   const schedulePublish = useCallback(() => {
     clearTimeout(publishTimer.current);

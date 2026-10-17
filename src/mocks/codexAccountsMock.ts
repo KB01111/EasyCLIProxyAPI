@@ -7,6 +7,8 @@
 //   keyring      native credential store is unsupported
 //   external     an out-of-app account change is pending acknowledgement
 //   recovery     a crash-recovery report is present
+//   recovery_deferred  the recovery report says the rollback is waiting for Codex to close
+//   block-<code> every switch is blocked with that code (may be a code the UI does not know)
 //   vault_error  loading state fails with a vault error
 //   file_permissions  vault protection is weaker than DPAPI
 
@@ -56,8 +58,10 @@ export function createCodexAccountsMock(host: CodexAccountsMockHost, flags: Read
   let settings = { refreshMinutes: 15, hotkey: null as string | null, notifications: false, recommendations: true };
   let lastSwitch: { from: string | null; to: string; at: number } | null = null;
   let externalChange: { from: string | null; to: string | null } | null = flags.has('external') ? { from: 'cx_mock_work', to: null } : null;
-  const recovery = flags.has('recovery')
-    ? { outcome: 'rolled_back', message: 'Restored the previous Codex login after an interrupted switch.', at: nowSeconds() - 600 } : null;
+  const recovery = flags.has('recovery_deferred')
+    ? { outcome: 'deferred', message: 'An interrupted switch could not be rolled back yet because Codex is running. Close Codex and it completes on the next refresh.', at: nowSeconds() - 300 }
+    : flags.has('recovery')
+      ? { outcome: 'rolled_back', message: 'Restored the previous Codex login after an interrupted switch.', at: nowSeconds() - 600 } : null;
   let vaultBroken = flags.has('vault_error');
   let summaries: MockSummary[] = [];
 
@@ -119,6 +123,8 @@ export function createCodexAccountsMock(host: CodexAccountsMockHost, flags: Read
   const switchTo = (key: string) => {
     const target = accounts.find((account) => account.key === key);
     if (!target) return blocked('target_unknown', 'No such account.', key);
+    const forced = [...flags].find((flag) => flag.startsWith('block-'));
+    if (forced) return blocked(forced.slice('block-'.length), `Blocked by the backend (${forced.slice('block-'.length)}).`, key);
     if (flags.has('keyring')) return blocked('unsupported_store', 'Credential store not supported.', key);
     if (flags.has('api_key')) return blocked('api_key_mode', 'Codex is in API key mode.', key);
     if (unmanaged) return blocked('unknown_live_identity', 'The live login is not saved.', key);

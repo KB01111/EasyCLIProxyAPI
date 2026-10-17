@@ -67,22 +67,24 @@ export function poolFileFrom(file: AuthFileRecord): PoolFile {
 function originalState(files: readonly PoolFile[], record: PoolRecord) {
   const original = new Map<string, PoolFile>();
   const releasedByUser = new Set<string>();
+  const releasedDisabled = new Set<string>();
+  const releasedPriority = new Set<string>();
   for (const file of files) {
     const change = record.changes[file.name];
     let { disabled, priority } = file;
     if (change) {
       if (change.setDisabled !== undefined && change.prevDisabled !== undefined) {
         if (file.disabled === change.setDisabled) disabled = change.prevDisabled;
-        else releasedByUser.add(file.name);
+        else { releasedByUser.add(file.name); releasedDisabled.add(file.name); }
       }
       if (change.setPriority !== undefined && change.prevPriority !== undefined) {
         if (file.priority === change.setPriority) priority = change.prevPriority;
-        else releasedByUser.add(file.name);
+        else { releasedByUser.add(file.name); releasedPriority.add(file.name); }
       }
     }
     original.set(file.name, { name: file.name, disabled, priority });
   }
-  return { original, releasedByUser };
+  return { original, releasedByUser, releasedDisabled, releasedPriority };
 }
 
 /**
@@ -96,7 +98,7 @@ export function planPoolMode(
   names: { a: string | null; b: string | null },
   record: PoolRecord,
 ): PoolPlan {
-  const { original, releasedByUser } = originalState(codexFiles, record);
+  const { original, releasedByUser, releasedDisabled, releasedPriority } = originalState(codexFiles, record);
   const warnings: PoolPlan['warnings'] = [];
   const desired = new Map<string, { disabled: boolean; priority: number }>();
   for (const [name, value] of original) desired.set(name, { disabled: value.disabled, priority: value.priority });
@@ -109,7 +111,8 @@ export function planPoolMode(
       else if (original.get(name)?.disabled) warnings.push({ name, reason: 'preferred-disabled' });
     }
     for (const file of codexFiles) {
-      if (!keep.has(file.name) && !original.get(file.name)!.disabled) desired.get(file.name)!.disabled = true;
+      // A credential the user re-enabled after we disabled it stays as the user left it.
+      if (!keep.has(file.name) && !original.get(file.name)!.disabled && !releasedDisabled.has(file.name)) desired.get(file.name)!.disabled = true;
     }
   } else if (mode === 'prefer-a' || mode === 'prefer-b') {
     const preferred = mode === 'prefer-a' ? names.a : names.b;
@@ -120,7 +123,7 @@ export function planPoolMode(
       const others = codexFiles.filter((file) => file.name !== preferred && !original.get(file.name)!.disabled);
       const highest = others.length ? Math.max(...others.map((file) => original.get(file.name)!.priority)) : null;
       const current = original.get(preferred)!.priority;
-      if (highest !== null && current <= highest) desired.get(preferred)!.priority = highest + 1;
+      if (highest !== null && current <= highest && !releasedPriority.has(preferred)) desired.get(preferred)!.priority = highest + 1;
     }
   }
 
@@ -198,25 +201,51 @@ function safeStorage(): Storage | null {
   try { return typeof window === 'undefined' ? null : window.localStorage; } catch { return null; }
 }
 
+export type PoolApi = {
+  setDisabled: (file: AuthFileRecord, disabled: boolean) => Promise<unknown>;
+  setPriority: (name: string, priority: number) => Promise<unknown>;
+};
+
+const defaultPoolApi: PoolApi = {
+  setDisabled: (file, disabled) => setOAuthCredentialFileDisabled(file, disabled),
+  setPriority: (name, priority) => managementApi.patch('/credentials/fields', { name, priority }),
+};
+
 /**
  * Applies the plan through the existing management API, persisting the record after every
- * successful step so a mid-way failure never loses track of what was changed.
+ * successful patch so a mid-way failure never loses track of what was changed. A step that
+ * changes both fields records the first change before attempting the second.
  */
 export async function applyPoolPlan(
   plan: PoolPlan,
   files: readonly AuthFileRecord[],
   record: PoolRecord,
-  options: { now?: number; persist?: (record: PoolRecord) => void } = {},
+  options: { now?: number; persist?: (record: PoolRecord) => void; api?: PoolApi } = {},
 ): Promise<PoolRecord> {
   const persist = options.persist ?? savePoolRecord;
+  const api = options.api ?? defaultPoolApi;
   const now = options.now ?? Date.now();
   let current = record;
   for (const step of plan.steps) {
     const file = files.find((candidate) => readString(candidate, 'name') === step.name);
-    if (step.disabled !== undefined || step.priority !== undefined) {
+    const patchesDisabled = step.disabled !== undefined;
+    const patchesPriority = step.priority !== undefined;
+    if (patchesDisabled || patchesPriority) {
       if (!file) throw new Error(step.name);
-      if (step.disabled !== undefined) await setOAuthCredentialFileDisabled(file, step.disabled);
-      if (step.priority !== undefined) await managementApi.patch('/credentials/fields', { name: step.name, priority: step.priority });
+      if (patchesDisabled) {
+        await api.setDisabled(file, step.disabled!);
+        if (patchesPriority) {
+          // The priority patch is still pending: keep its previous record fields, take the disable fields.
+          const before = current.changes[step.name];
+          const partial: PoolChange = {
+            ...(step.entry?.setDisabled !== undefined ? { prevDisabled: step.entry.prevDisabled, setDisabled: step.entry.setDisabled } : {}),
+            ...(before?.setPriority !== undefined ? { prevPriority: before.prevPriority, setPriority: before.setPriority } : {}),
+          };
+          current = applyStepToRecord(current, { name: step.name, entry: Object.keys(partial).length ? partial : null }, plan.mode, now);
+          persist(current);
+        }
+      }
+      if (patchesPriority) await api.setPriority(step.name, step.priority!);
     }
     current = applyStepToRecord(current, step, plan.mode, now);
     persist(current);
