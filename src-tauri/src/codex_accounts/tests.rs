@@ -831,7 +831,11 @@ fn crash_recovery_rolls_back_partial_switches_and_finishes_complete_ones() {
     fs::write(fixture.codex.join("auth.json"), &new).unwrap();
     fs::write(&state_file, b"{\"version\":1}").unwrap();
     seal_journal(&fixture, &journal);
-    let report = fixture.engine.recover(NOW + 5).unwrap().unwrap();
+    let report = fixture
+        .engine
+        .recover(NOW + 5, &|| Ok(Vec::new()))
+        .unwrap()
+        .unwrap();
     assert_eq!(report.outcome, "rolled_back");
     assert_eq!(fs::read(fixture.codex.join("auth.json")).unwrap(), old);
     assert!(!fixture.accounts.join(JOURNAL_FILE).exists());
@@ -839,7 +843,12 @@ fn crash_recovery_rolls_back_partial_switches_and_finishes_complete_ones() {
     // Nothing written yet: nothing to do.
     seal_journal(&fixture, &journal);
     assert_eq!(
-        fixture.engine.recover(NOW + 6).unwrap().unwrap().outcome,
+        fixture
+            .engine
+            .recover(NOW + 6, &|| Ok(Vec::new()))
+            .unwrap()
+            .unwrap()
+            .outcome,
         "untouched"
     );
 
@@ -848,7 +857,12 @@ fn crash_recovery_rolls_back_partial_switches_and_finishes_complete_ones() {
     fs::write(&state_file, b"{\"version\":1,\"x\":1}").unwrap();
     seal_journal(&fixture, &journal);
     assert_eq!(
-        fixture.engine.recover(NOW + 7).unwrap().unwrap().outcome,
+        fixture
+            .engine
+            .recover(NOW + 7, &|| Ok(Vec::new()))
+            .unwrap()
+            .unwrap()
+            .outcome,
         "completed"
     );
     assert_eq!(
@@ -857,7 +871,11 @@ fn crash_recovery_rolls_back_partial_switches_and_finishes_complete_ones() {
     );
 
     // No journal -> no-op.
-    assert!(fixture.engine.recover(NOW + 8).unwrap().is_none());
+    assert!(fixture
+        .engine
+        .recover(NOW + 8, &|| Ok(Vec::new()))
+        .unwrap()
+        .is_none());
 }
 
 #[test]
@@ -876,7 +894,11 @@ fn recovery_never_overwrites_credentials_that_changed_after_the_crash() {
     )
     .unwrap();
     seal_journal(&fixture, &journal);
-    let report = fixture.engine.recover(NOW + 9).unwrap().unwrap();
+    let report = fixture
+        .engine
+        .recover(NOW + 9, &|| Ok(Vec::new()))
+        .unwrap()
+        .unwrap();
     assert_eq!(report.outcome, "diverged");
     assert_eq!(
         fs::read(fixture.codex.join("auth.json")).unwrap(),
@@ -895,7 +917,11 @@ fn a_tampered_journal_is_quarantined_not_trusted() {
     let mut bytes = fs::read(&path).unwrap();
     *bytes.last_mut().unwrap() ^= 0xff;
     fs::write(&path, bytes).unwrap();
-    let report = fixture.engine.recover(NOW).unwrap().unwrap();
+    let report = fixture
+        .engine
+        .recover(NOW, &|| Ok(Vec::new()))
+        .unwrap()
+        .unwrap();
     assert_eq!(report.outcome, "failed");
     assert!(!path.exists());
 }
@@ -1406,4 +1432,77 @@ fn aliases_cannot_hide_behind_invisible_characters() {
     for alias in ["Work\u{202e}", "\u{200b}", "a\u{feff}b"] {
         assert!(fixture.engine.rename(&keys[0], alias).is_err(), "{alias:?}");
     }
+}
+
+#[test]
+fn explicit_api_key_mode_wins_over_leftover_tokens() {
+    let mut auth = serde_json::to_value(
+        render_native_auth(None, &fresh(&PERSONAL))
+            .map(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    auth["auth_mode"] = serde_json::json!("apikey");
+    auth["OPENAI_API_KEY"] = serde_json::json!("sk-synthetic");
+    assert!(matches!(
+        parse_native_auth(Some(auth.to_string().as_bytes())),
+        Ok(NativeAuth::ApiKey)
+    ));
+}
+
+#[test]
+fn a_live_vs_saved_conflict_on_the_departing_account_blocks_the_switch() {
+    let (fixture, keys) = Fixture::with_three_accounts("live-conflict");
+    let mut twin = fresh(&PERSONAL);
+    twin.tokens.refresh_token = "refresh-live-rotated".into();
+    fixture.write_live(&twin);
+    let before = fs::read(fixture.codex.join("auth.json")).unwrap();
+    let outcome = fixture.switch(&keys[1]);
+    assert_eq!(
+        (outcome.status, outcome.code),
+        ("blocked", Some("live_conflict"))
+    );
+    assert_eq!(
+        fs::read(fixture.codex.join("auth.json")).unwrap(),
+        before,
+        "the live token survives"
+    );
+}
+
+#[test]
+fn recovery_defers_a_rollback_while_codex_runs_or_cannot_be_ruled_out() {
+    let (fixture, keys) = Fixture::with_three_accounts("recovery-deferred");
+    let old = render_native_auth(None, &fresh(&PERSONAL)).unwrap();
+    let new = render_native_auth(None, &fresh(&WORK)).unwrap();
+    let journal = journal_for(&fixture, &keys[1], Some(old.clone()), new.clone());
+    fs::write(fixture.codex.join("auth.json"), &new).unwrap();
+    fs::write(
+        fixture.codex.join(CODEX_NATIVE_OAUTH_STATE_FILE),
+        b"{\"version\":1}",
+    )
+    .unwrap();
+    seal_journal(&fixture, &journal);
+    for scan in [
+        Box::new(|| Ok(busy("codex.exe"))) as Box<dyn Fn() -> Result<Vec<RunningCodex>, String>>,
+        Box::new(|| Err("scan failed".to_string())),
+    ] {
+        let report = fixture.engine.recover(NOW, &*scan).unwrap().unwrap();
+        assert_eq!(report.outcome, "deferred");
+        assert_eq!(
+            fs::read(fixture.codex.join("auth.json")).unwrap(),
+            new,
+            "live credentials untouched"
+        );
+        assert!(
+            fixture.accounts.join(JOURNAL_FILE).exists(),
+            "journal kept for later"
+        );
+    }
+    let report = fixture
+        .engine
+        .recover(NOW + 1, &|| Ok(Vec::new()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(report.outcome, "rolled_back");
+    assert_eq!(fs::read(fixture.codex.join("auth.json")).unwrap(), old);
 }

@@ -244,7 +244,7 @@ interface AccountsSnapshot {
   settings: AccountSettings;
   lastSwitch: { from: string | null; to: string; at: number } | null;
   externalChange: { from: string | null; to: string | null } | null; // sticky until acknowledged
-  recovery: { outcome: 'completed' | 'rolled_back' | 'diverged' | 'untouched' | 'failed'; message: string; at: number } | null;
+  recovery: { outcome: 'completed' | 'rolled_back' | 'diverged' | 'untouched' | 'failed' | 'deferred'; message: string; at: number } | null;
   issues: string[];
   protection: 'windows-dpapi' | 'file-permissions';
   generatedAt: number;
@@ -254,7 +254,7 @@ interface SwitchOutcome {
   status: 'switched' | 'unchanged' | 'blocked';
   code: null | 'target_unknown' | 'target_missing_credentials' | 'unsupported_store' | 'live_auth_corrupt'
     | 'api_key_mode' | 'live_identity_unverifiable' | 'unknown_live_identity' | 'codex_running'
-    | 'identity_mismatch' | 'target_expired' | 'process_scan_failed' | 'target_incomplete' | 'recovery_pending';
+    | 'identity_mismatch' | 'target_expired' | 'process_scan_failed' | 'target_incomplete' | 'recovery_pending' | 'live_conflict';
   message: string; from: string | null; to: string;
   restartRequired: boolean; desktop: 'unverified';
   running: { pid: number; name: string; kind: string }[];

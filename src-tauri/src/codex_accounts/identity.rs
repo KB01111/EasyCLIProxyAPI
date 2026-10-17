@@ -341,6 +341,11 @@ pub(crate) fn parse_native_auth(content: Option<&[u8]>) -> Result<NativeAuth, St
             .and_then(serde_json::Value::as_str)
             .map(str::to_string),
     };
+    // An explicit API-key mode wins over leftover token fields: treating it as OAuth would let a
+    // switch drop the key (for example the CPA proxy key).
+    if object.get("auth_mode").and_then(serde_json::Value::as_str) == Some("apikey") {
+        return Ok(NativeAuth::ApiKey);
+    }
     if credential.has_token_material() {
         return Ok(NativeAuth::OAuth(credential));
     }
@@ -348,7 +353,7 @@ pub(crate) fn parse_native_auth(content: Option<&[u8]>) -> Result<NativeAuth, St
         .get("OPENAI_API_KEY")
         .and_then(serde_json::Value::as_str)
         .is_some_and(|key| !key.trim().is_empty());
-    if api_key || object.get("auth_mode").and_then(serde_json::Value::as_str) == Some("apikey") {
+    if api_key {
         return Ok(NativeAuth::ApiKey);
     }
     Ok(NativeAuth::Missing)

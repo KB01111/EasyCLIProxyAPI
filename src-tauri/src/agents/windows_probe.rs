@@ -792,6 +792,7 @@ pub(crate) fn find_windows_process_entries() -> Option<Vec<(u32, String, Option<
     let mut entry = unsafe { std::mem::zeroed::<PROCESSENTRY32W>() };
     entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
     let mut processes = Vec::new();
+    let mut complete = false;
     if unsafe { Process32FirstW(snapshot, &mut entry) } != 0 {
         loop {
             if entry.th32ProcessID != 0 {
@@ -808,6 +809,9 @@ pub(crate) fn find_windows_process_entries() -> Option<Vec<(u32, String, Option<
                 ));
             }
             if unsafe { Process32NextW(snapshot, &mut entry) } == 0 {
+                // Only "no more files" is a normal end; anything else is a truncated scan.
+                complete = unsafe { windows_sys::Win32::Foundation::GetLastError() }
+                    == windows_sys::Win32::Foundation::ERROR_NO_MORE_FILES;
                 break;
             }
         }
@@ -815,7 +819,7 @@ pub(crate) fn find_windows_process_entries() -> Option<Vec<(u32, String, Option<
     unsafe {
         windows_sys::Win32::Foundation::CloseHandle(snapshot);
     }
-    Some(processes)
+    complete.then_some(processes)
 }
 
 pub(crate) fn find_windows_process_snapshot() -> Vec<(u32, PathBuf)> {

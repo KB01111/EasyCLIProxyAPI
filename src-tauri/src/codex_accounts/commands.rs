@@ -149,7 +149,7 @@ fn refresh_snapshot(
         None
     };
     // Complete an interrupted switch before anything reads or changes credentials.
-    if let Err(error) = engine.recover(unix_now()) {
+    if let Err(error) = engine.recover(unix_now(), &|| state.processes(true)) {
         eprintln!("Codex account recovery failed: {error}");
     }
     let ticket = state.snapshot_ticket.fetch_add(1, Ordering::AcqRel);
@@ -284,7 +284,10 @@ pub(crate) fn initialize_codex_accounts(app: &tauri::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<CodexAccountsState>();
-        match state.engine().and_then(|engine| engine.recover(unix_now())) {
+        match state
+            .engine()
+            .and_then(|engine| engine.recover(unix_now(), &|| state.processes(true)))
+        {
             Ok(Some(report)) => {
                 eprintln!("Codex account recovery: {}", report.message);
                 notify(&app, "Codex account recovery", &report.message);

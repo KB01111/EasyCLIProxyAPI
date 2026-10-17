@@ -825,6 +825,15 @@ impl AccountEngine {
                             &live,
                             env.now,
                         );
+                        if outcome == Reconcile::Conflict && identity.key != target {
+                            // Same age, different tokens: leaving would discard one of two possibly
+                            // valid refresh tokens for good.
+                            return block(
+                                "live_conflict",
+                                "The live Codex login and the saved copy of this account differ at the same age; sign in to it again before switching away so no session is lost",
+                                Some(identity.key),
+                            );
+                        }
                         live_is_stale = outcome == Reconcile::KeptNewer;
                         if inserted || outcome == Reconcile::Adopted {
                             // Persist refreshed tokens first: this is worth keeping even if the switch fails.
@@ -1053,7 +1062,13 @@ impl AccountEngine {
 
     /// Examine a journal left by an interrupted switch. Never overwrites newer credentials:
     /// files that diverged from both the before and after images are left alone.
-    pub(crate) fn recover(&self, now: i64) -> Result<Option<RecoveryReport>, String> {
+    /// `process_scan` is consulted only before a rollback would rewrite live credentials: if Codex
+    /// is running (or cannot be ruled out) the rollback is deferred and the journal kept.
+    pub(crate) fn recover(
+        &self,
+        now: i64,
+        process_scan: &dyn Fn() -> Result<Vec<RunningCodex>, String>,
+    ) -> Result<Option<RecoveryReport>, String> {
         let _config_guard = AGENT_CONFIG_FILE_LOCK
             .lock()
             .map_err(|_| "Agent configuration file lock is poisoned".to_string())?;
@@ -1129,6 +1144,20 @@ impl AccountEngine {
                     "completed",
                     "An interrupted account switch had completed; state was updated",
                 )
+            }
+            RecoveryAction::RollBack(_)
+                if process_scan().map_or(true, |found| !found.is_empty()) =>
+            {
+                let result = report(
+                    "deferred",
+                    "An interrupted account switch could not be rolled back yet because Codex is running; close Codex and it will finish automatically",
+                );
+                *self
+                    .recovery
+                    .lock()
+                    .map_err(|_| "Recovery state lock is poisoned".to_string())? =
+                    Some(result.clone());
+                return Ok(Some(result));
             }
             RecoveryAction::RollBack(indexes) => {
                 let restore: Images = indexes
