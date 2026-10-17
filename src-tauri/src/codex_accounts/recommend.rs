@@ -64,11 +64,16 @@ impl QuotaSummary {
     }
 }
 
-pub(crate) fn sanitize_summaries(summaries: Vec<QuotaSummary>) -> Vec<QuotaSummary> {
+/// Clock skew tolerated between the webview and this process before a digest is called "from the future".
+const FUTURE_TOLERANCE_SECONDS: i64 = 300;
+
+pub(crate) fn sanitize_summaries(summaries: Vec<QuotaSummary>, now: i64) -> Vec<QuotaSummary> {
     summaries
         .into_iter()
         .take(MAX_SUMMARIES)
         .filter_map(QuotaSummary::sanitized)
+        // A future fetch time would read as fresh until the clock caught up.
+        .filter(|summary| summary.fetched_at <= now + FUTURE_TOLERANCE_SECONDS)
         .collect()
 }
 
@@ -291,11 +296,15 @@ mod tests {
 
     #[test]
     fn untrusted_summaries_are_sanitized() {
-        let cleaned = sanitize_summaries(vec![
-            summary("a", Some(f64::NAN), Some(250.0), 5, "weird"),
-            summary("", Some(1.0), None, 5, "ok"),
-            summary("c", Some(1.0), None, 0, "ok"),
-        ]);
+        let cleaned = sanitize_summaries(
+            vec![
+                summary("a", Some(f64::NAN), Some(250.0), 5, "weird"),
+                summary("", Some(1.0), None, 5, "ok"),
+                summary("c", Some(1.0), None, 0, "ok"),
+                summary("future", Some(99.0), None, 10_000, "ok"),
+            ],
+            10,
+        );
         assert_eq!(cleaned.len(), 1);
         assert_eq!(cleaned[0].short_remaining_pct, None);
         assert_eq!(cleaned[0].weekly_remaining_pct, Some(100.0));

@@ -6,7 +6,7 @@ use super::recommend::{recommend, sanitize_summaries, QuotaSummary, Recommendati
 use super::store::AccountSettings;
 use super::vault::platform_protector;
 use super::*;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicU64, Arc};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 
@@ -37,7 +37,9 @@ fn accounts_directory() -> Result<PathBuf, String> {
 pub(crate) struct CodexAccountsState {
     engine: Result<Arc<AccountEngine>, String>,
     quota: Mutex<Vec<QuotaSummary>>,
-    snapshot: Mutex<Option<AccountsSnapshot>>,
+    /// `(ticket, snapshot)`: a slower, older refresh must not overwrite a newer snapshot.
+    snapshot: Mutex<Option<(u64, AccountsSnapshot)>>,
+    snapshot_ticket: AtomicU64,
     processes: Mutex<Option<(Instant, Vec<RunningCodex>)>>,
     /// Last tray/hotkey action result, shown in the tray header.
     last_message: Mutex<Option<String>>,
@@ -53,6 +55,7 @@ impl Default for CodexAccountsState {
             engine,
             quota: Mutex::default(),
             snapshot: Mutex::default(),
+            snapshot_ticket: AtomicU64::new(0),
             processes: Mutex::default(),
             last_message: Mutex::default(),
             busy: AtomicBool::new(false),
@@ -69,7 +72,7 @@ impl CodexAccountsState {
         self.snapshot
             .lock()
             .ok()
-            .and_then(|snapshot| snapshot.clone())
+            .and_then(|snapshot| snapshot.as_ref().map(|(_, snapshot)| snapshot.clone()))
     }
 
     pub(crate) fn quota_summaries(&self) -> Vec<QuotaSummary> {
@@ -145,6 +148,7 @@ fn refresh_snapshot(
     } else {
         None
     };
+    let ticket = state.snapshot_ticket.fetch_add(1, Ordering::AcqRel);
     let snapshot = engine.state(&StateContext {
         cpa_dir: &paths.cpa_dir,
         codex_home: &paths.codex_home,
@@ -152,7 +156,9 @@ fn refresh_snapshot(
         running,
     })?;
     if let Ok(mut cache) = state.snapshot.lock() {
-        *cache = Some(snapshot.clone());
+        if cache.as_ref().is_none_or(|(held, _)| *held < ticket) {
+            *cache = Some((ticket, snapshot.clone()));
+        }
     }
     refresh_tray(app);
     if announce {
@@ -449,7 +455,7 @@ pub(crate) async fn codex_accounts_publish_quota(
 ) -> Result<Recommendation, String> {
     blocking(move || {
         let state = app.state::<CodexAccountsState>();
-        let summaries = sanitize_summaries(summaries);
+        let summaries = sanitize_summaries(summaries, unix_now());
         if let Ok(mut quota) = state.quota.lock() {
             *quota = summaries;
         }

@@ -79,8 +79,8 @@ account used by the native Codex CLI with a single click, from the tray, or with
 shortcut.
 
 - **Connect accounts** with the normal Codex OAuth login. Every `type: codex` credential in the CPA
-  credentials directory shows up automatically; each login is identified by its verified ChatGPT account
-  and user id (not by email), so two logins with the same email stay distinct.
+  credentials directory shows up automatically; each login is identified by the ChatGPT account and user id
+  carried in its tokens (not by email; the claims are compared, not cryptographically verified), so two logins with the same email stay distinct.
 - **Pin two accounts** (Primary / Secondary) for quick switching. *Switch to A*, *Switch to B* and
   *Toggle A ↔ B* are available in the page, the tray and the optional shortcut (disabled until you set
   one, for example `Ctrl+Alt+F9`). The third account stays connected and selectable from the list.

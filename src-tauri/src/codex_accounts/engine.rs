@@ -1054,6 +1054,9 @@ impl AccountEngine {
                     to: journal.target_key.clone(),
                     at: journal.started_at,
                 });
+                if let Some(record) = store.account_mut(&journal.target_key) {
+                    record.last_activated_at = Some(journal.started_at);
+                }
                 save_store(&self.directory, &store)?;
                 let _ = fs::remove_file(&journal_path);
                 report(
