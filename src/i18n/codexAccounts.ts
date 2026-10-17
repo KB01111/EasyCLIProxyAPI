@@ -819,3 +819,23 @@ export const codexAccountsJa: Record<keyof typeof codexAccountsZhCN, string> = {
   'codexAccounts.toast.restarted': 'Codex デスクトップの再起動を要求しました。表示されるアカウントを確認してください。',
   'codexAccounts.toast.vaultReset': '保管庫をリセットしました',
 };
+
+// The shared simplified-to-traditional converter misses some characters used on this page,
+// so zh-TW for these keys gets an extra pass with Taiwan wording.
+const zhTWPhrases: ReadonlyArray<readonly [string, string]> = [
+  ['登录', '登入'], ['登錄', '登入'], ['保险库', '保險庫'], ['邮箱', '電子郵件'], ['进程', '行程'], ['套餐', '方案'],
+  ['全局', '全域'], ['缓存', '快取'], ['後台', '背景'], ['后台', '背景'], ['性能', '效能'], ['说明', '說明'],
+  ['代理使用', '代理使用'], ['托管', '託管'], ['存儲', '儲存'], ['界面', '介面'], ['刚刚', '剛剛'],
+];
+const zhTWCharacters: Readonly<Record<string, string>> = {
+  读: '讀', 护: '護', 断: '斷', 滚: '滾', 绝: '絕', 较: '較', 余: '餘', 荐: '薦', 尽: '盡', 两: '兩', 给: '給',
+  险: '險', 库: '庫', 旧: '舊', 丢: '丟', 损: '損', 坏: '壞', 验: '驗', 详: '詳', 区: '區', 频: '頻', 刚: '剛',
+  还: '還', 满: '滿', 参: '參', 饰: '飾', 拦: '攔', 栏: '欄', 边: '邊', 录: '錄', 制: '製', 说: '說', 术: '術',
+  稳: '穩', 态: '態', 术语: '術語', 简: '簡', 项: '項', 并: '並', 无: '無', 丢失: '遺失', 户: '戶', 护理: '護理',
+  级: '級', 闭: '閉', 发: '發', 恢: '恢', 复: '復', 启: '啟', 释: '釋', 轮: '輪', 询: '詢', 载: '載',
+};
+export const codexAccountsZhTW = (converted: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(converted).map(([key, message]) => {
+    const phrased = zhTWPhrases.reduce((current, [from, to]) => current.split(from).join(to), message);
+    return [key, Array.from(phrased, (character) => zhTWCharacters[character] ?? character).join('')];
+  }));
