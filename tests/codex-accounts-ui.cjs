@@ -107,6 +107,31 @@ const path = require('node:path');
       await page.close();
     }
 
+    // 3b. Newer backend block codes: mapped codes get specific text, unknown codes never crash the page.
+    for (const [code, pattern, action] of [
+      ['process_scan_failed', /could not confirm Codex is closed/, 'Check again'],
+      ['recovery_pending', /interrupted switch is being recovered/, 'Check again'],
+      ['target_incomplete', /missing token parts/, 'Reauthenticate'],
+      ['live_conflict', /differ at the same age/, 'Reauthenticate'],
+      ['brand_new_code', /The switch was not performed/, null],
+    ]) {
+      const page = await open(`block-${code}`);
+      await featured(page, 'secondary').getByRole('button', { name: 'Switch to Home' }).click();
+      const result = page.locator(`[data-testid=switch-result][data-code=${code}]`);
+      await result.waitFor();
+      assert.match(await result.innerText(), pattern, code);
+      if (action) assert.equal(await result.getByRole('button', { name: action }).count(), 1, `${code} offers ${action}`);
+      else assert.match(await result.getByTestId('backend-message').innerText(), /brand_new_code/, 'unmapped codes show the backend message');
+      await page.close();
+    }
+    {
+      const page = await open('recovery_deferred');
+      const banner = page.locator('[data-testid=banner-recovery]');
+      assert.match(await banner.innerText(), /could not be rolled back yet/);
+      assert.match(await banner.getByTestId('recovery-deferred-hint').innerText(), /Close Codex/);
+      await page.close();
+    }
+
     // 4. Unmanaged native login: banner and the add-account flow.
     {
       const page = await open('unmanaged');

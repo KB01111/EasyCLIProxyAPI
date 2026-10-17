@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  acceleratorFromKeyEvent, computePinned, isVaultError, nativeSwitchBlockReason, shareSnapshotStructure,
+  acceleratorFromKeyEvent, computePinned, createSettingsWriter, isVaultError, nativeSwitchBlockReason, shareSnapshotStructure,
   splitDuration, summarizeHealth, switchDisabledReason, type AccountView, type AccountsSnapshot,
 } from '../src/services/codexAccounts';
+import { createCodexAccountsMock } from '../src/mocks/codexAccountsMock';
 import { createBrowserMockRuntime } from '../src/mocks/browserMockRuntime';
 
 const view = (key: string, extra: Partial<AccountView> = {}): AccountView => ({
@@ -68,6 +69,54 @@ describe('state helpers', () => {
     expect(key('F9', { ctrlKey: true, altKey: true })).toBe('Ctrl+Alt+F9');
     expect(key('KeyK', { ctrlKey: true, shiftKey: true })).toBe('Ctrl+Shift+K');
     expect(acceleratorFromKeyEvent({ key: 'Control', code: 'ControlLeft', ctrlKey: true, altKey: false, shiftKey: false, metaKey: false })).toBeNull();
+  });
+});
+
+describe('settings writer', () => {
+  const base = { refreshMinutes: 15, hotkey: null, notifications: false, recommendations: true };
+
+  test('quick successive changes are serialised and never overwrite each other', async () => {
+    const written: unknown[] = [];
+    const writer = createSettingsWriter(async (settings) => {
+      await new Promise((resolve) => setTimeout(resolve, written.length === 0 ? 20 : 1));
+      written.push(settings);
+      return settings;
+    });
+    writer.sync(base);
+    const results = await Promise.all([writer.save({ notifications: true }), writer.save({ recommendations: false })]);
+    expect(results).toEqual([null, null]);
+    expect(written).toEqual([
+      { ...base, notifications: true },
+      { ...base, notifications: true, recommendations: false },
+    ]);
+  });
+
+  test('a rejected write reports the error and the next write starts from the last saved value', async () => {
+    let calls = 0;
+    const writer = createSettingsWriter(async (settings) => {
+      if (++calls === 1) throw new Error('shortcut in use');
+      return settings;
+    });
+    writer.sync(base);
+    expect(await writer.save({ hotkey: 'Ctrl+Alt+F1' })).toBe('shortcut in use');
+    expect(await writer.save({ notifications: true })).toBeNull();
+    writer.sync({ ...base, refreshMinutes: 30 });
+    let sent: unknown;
+    const second = createSettingsWriter(async (settings) => { sent = settings; return settings; });
+    expect(await second.save({ notifications: true })).toMatch(/not loaded/);
+    second.sync(base);
+    await second.save({ refreshMinutes: 5 });
+    expect(sent).toEqual({ ...base, refreshMinutes: 5 });
+  });
+});
+
+describe('backend contract additions in the mock', () => {
+  test('recovery can be deferred and unknown block codes are passed through', async () => {
+    const deferred = createCodexAccountsMock({ authFiles: [] }, new Set(['recovery_deferred']));
+    const state = (deferred.handle('codex_accounts_get_state', { includeProcesses: false }) as { value: AccountsSnapshot }).value;
+    expect(state.recovery?.outcome).toBe('deferred');
+    const blocked = createCodexAccountsMock({ authFiles: [] }, new Set(['block-live_conflict']));
+    expect(blocked.handle('codex_accounts_switch', { key: 'cx_mock_home' })).toMatchObject({ value: { status: 'blocked', code: 'live_conflict' } });
   });
 });
 

@@ -4,6 +4,8 @@ import {
   buildQuotaSummaries,
   classifyCodexWindows,
   classifyQuotaFailure,
+  createSummaryPublisher,
+  staleAuthFailureKeys,
   entryFromQuotaState,
   expiredCredentialEntry,
   findAccountFile,
@@ -67,6 +69,86 @@ describe('classifyCodexWindows', () => {
     expect(windows.short).toMatchObject({ remainingPct: 75, resetAtSec: 1_900_000_000, windowSeconds: 18_000 });
     expect(windows.long).toMatchObject({ remainingPct: 40, resetAtSec: 1_900_100_000 });
     expect(windows.extra).toHaveLength(1);
+  });
+});
+
+describe('spending limits', () => {
+  test('a single rate-limit window plus a spending row never classifies the spending row as long-term', () => {
+    const rows = quotaRowsFor('codex', {
+      rate_limit: { primary_window: { used_percent: 20, limit_window_seconds: 18_000 } },
+      spend_control: { individual_limit: { limit: 100, used: 40, remaining: 60, unit: 'USD' } },
+    });
+    expect(rows).toHaveLength(2);
+    const windows = classifyCodexWindows(rows);
+    expect(windows.short?.remainingPct).toBe(80);
+    expect(windows.long).toBeNull();
+    expect(windows.extra).toHaveLength(1);
+    expect(windows.extra[0].remainingPct).toBe(60);
+    // Spending-only data is not a usable quota window and publishes nothing.
+    const only = quotaRowsFor('codex', { spend_control: { individual_limit: { limit: 100, remaining: 60 } } });
+    const entry = entryFromQuotaState({ status: 'success', rows: only, fetchedAt: 1 }, NOW);
+    expect(entry.status).toBe('unavailable');
+    expect(buildQuotaSummaries([{ key: 'a' }], { a: entry })).toEqual([]);
+  });
+});
+
+describe('cached auth failures after re-login', () => {
+  const failed: AccountQuotaEntry = expiredCredentialEntry(NOW);
+  const seen = { a: { validity: 'expired' as const, lastRefresh: null } };
+  test('an expired -> usable account drops its cached failure so it refreshes immediately', () => {
+    expect(staleAuthFailureKeys([account('a', { validity: 'valid' })], seen, { a: failed })).toEqual(['a']);
+    expect(staleAuthFailureKeys([account('a', { validity: 'expired' })], seen, { a: failed })).toEqual([]);
+    expect(staleAuthFailureKeys([account('a', { validity: 'valid' })], {}, { a: failed })).toEqual([]);
+    expect(staleAuthFailureKeys([account('a', { validity: 'valid' })], seen, {})).toEqual([]);
+    const reissued = { a: { validity: 'valid' as const, lastRefresh: '2026-01-01T00:00:00Z' } };
+    expect(staleAuthFailureKeys([account('a', { lastRefresh: '2026-02-01T00:00:00Z' })], reissued, { a: failed })).toEqual(['a']);
+    expect(staleAuthFailureKeys([account('a', { lastRefresh: '2026-01-01T00:00:00Z' })], reissued, { a: failed })).toEqual([]);
+    // Once dropped, selectRefreshTargets picks it up despite the back-off window.
+    const options = { accounts: [account('a')], files: [{ name: 'a.json', auth_index: 'i' }], refreshMinutes: 15, nowMs: NOW, coreReady: true, force: false };
+    expect(selectRefreshTargets({ ...options, entries: { a: failed } })).toEqual([]);
+    expect(selectRefreshTargets({ ...options, entries: {} })).toEqual(['a']);
+  });
+});
+
+describe('createSummaryPublisher', () => {
+  test('publishes serially so a slow partial call cannot finish after the complete one', async () => {
+    const entries: Record<string, number> = { a: 1 };
+    const sent: string[][] = [];
+    const finished: string[] = [];
+    let slow = true;
+    const publisher = createSummaryPublisher(
+      () => Object.entries(entries).map(([key, pct]) => ({ key, status: 'ok' as const, shortRemainingPct: pct, fetchedAt: 1 })),
+      async (summaries) => {
+        sent.push(summaries.map((summary) => summary.key));
+        if (slow) { slow = false; await new Promise((resolve) => setTimeout(resolve, 20)); }
+        finished.push(summaries.map((summary) => summary.key).join());
+      },
+    );
+    const first = publisher.publish();           // partial: only "a", now in flight and slow
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    entries.b = 2;
+    entries.c = 3;
+    const second = publisher.publish();          // complete set, queued behind the first
+    await Promise.all([first, second]);
+    expect(sent).toEqual([['a'], ['a', 'b', 'c']]);
+    expect(finished.at(-1)).toBe('a,b,c');
+    await publisher.publish();                    // unchanged: skipped
+    expect(sent).toHaveLength(2);
+  });
+
+  test('requests queued before a change are built from the newest data and failures are retried', async () => {
+    const entries: Record<string, number> = { a: 1 };
+    const sent: string[][] = [];
+    let fail = true;
+    const publisher = createSummaryPublisher(
+      () => Object.keys(entries).map((key) => ({ key, status: 'ok' as const, fetchedAt: 1 })),
+      async (summaries) => { if (fail) { fail = false; throw new Error('ipc'); } sent.push(summaries.map((summary) => summary.key)); },
+    );
+    const queued = [publisher.publish(), publisher.publish()];
+    entries.b = 2;
+    await Promise.all(queued);
+    expect(sent).toEqual([['a', 'b']]);
+    expect(createSummaryPublisher(() => [], async () => { throw new Error('never sent'); }).publish()).resolves.toBeUndefined();
   });
 });
 

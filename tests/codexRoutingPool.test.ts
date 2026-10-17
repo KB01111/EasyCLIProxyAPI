@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  applyPoolPlan, applyStepToRecord, emptyPoolRecord, loadPoolRecord, planPoolMode, savePoolRecord, POOL_STORAGE_KEY,
+  applyPoolPlan, applyStepToRecord, type PoolApi, emptyPoolRecord, loadPoolRecord, planPoolMode, savePoolRecord, POOL_STORAGE_KEY,
   type PoolFile, type PoolRecord,
 } from '../src/services/codexRoutingPool';
 
@@ -67,6 +67,53 @@ describe('planPoolMode', () => {
     const plan = planPoolMode('only-ab', disabledA, names, emptyPoolRecord());
     expect(plan.warnings).toContainEqual({ name: 'a.json', reason: 'preferred-disabled' });
     expect(plan.steps.some((step) => step.name === 'a.json')).toBe(false);
+  });
+});
+
+describe('pool edge cases', () => {
+  test('re-applying only-ab keeps a credential the user re-enabled after we disabled it', () => {
+    const first = run(planPoolMode('only-ab', files(), names, emptyPoolRecord()), files(), emptyPoolRecord());
+    const reEnabled = first.files.map((file) => file.name === 'c.json' ? { ...file, disabled: false } : file);
+    const plan = planPoolMode('only-ab', reEnabled, names, first.record);
+    expect(plan.steps.filter((step) => step.disabled !== undefined)).toEqual([]);
+    expect(plan.warnings).toContainEqual({ name: 'c.json', reason: 'changed-since' });
+    const applied = run(plan, reEnabled, first.record);
+    expect(applied.files.find((file) => file.name === 'c.json')?.disabled).toBe(false);
+    expect(applied.record.changes['c.json']).toBeUndefined();
+    // The next explicit apply starts from the user's value and may disable it again.
+    expect(planPoolMode('only-ab', applied.files, names, applied.record).steps.map((step) => step.name)).toEqual(['c.json']);
+  });
+
+  test('prefer keeps a priority the user changed after we raised it', () => {
+    const first = run(planPoolMode('prefer-a', files(), names, emptyPoolRecord()), files(), emptyPoolRecord());
+    const edited = first.files.map((file) => file.name === 'a.json' ? { ...file, priority: 1 } : file);
+    const plan = planPoolMode('prefer-a', edited, names, first.record);
+    expect(plan.steps.filter((step) => step.priority !== undefined)).toEqual([]);
+  });
+
+  test('a failing priority patch after a successful disable still leaves the disable restorable', async () => {
+    const start: PoolFile[] = [
+      { name: 'a.json', disabled: false, priority: 0 },
+      { name: 'x.json', disabled: false, priority: 3 },
+    ];
+    // Hand-built step that changes both fields of one credential.
+    const plan = { mode: 'only-ab' as const, warnings: [], steps: [{
+      name: 'x.json', disabled: true, priority: 9,
+      entry: { prevDisabled: false, setDisabled: true, prevPriority: 3, setPriority: 9 },
+    }] };
+    const live = new Map(start.map((file) => [file.name, { ...file }]));
+    const api: PoolApi = {
+      setDisabled: async (file, disabled) => { live.get(String(file.name))!.disabled = disabled; },
+      setPriority: async () => { throw new Error('management API unavailable'); },
+    };
+    const persisted: PoolRecord[] = [];
+    const file = { name: 'x.json', source: 'file', type: 'codex', provider: 'codex' };
+    await expect(applyPoolPlan(plan, [file], emptyPoolRecord(), { api, persist: (record) => persisted.push(record) })).rejects.toThrow('unavailable');
+    const saved = persisted.at(-1)!;
+    expect(saved.changes['x.json']).toEqual({ prevDisabled: false, setDisabled: true });
+    // A later "use all enabled accounts" plan re-enables it, and only it.
+    const restore = planPoolMode('all', [...live.values()], names, saved);
+    expect(restore.steps).toEqual([{ name: 'x.json', disabled: false, entry: null }]);
   });
 });
 
