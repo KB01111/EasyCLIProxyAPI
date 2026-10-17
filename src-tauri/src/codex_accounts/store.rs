@@ -82,7 +82,9 @@ impl StoreData {
     pub(crate) fn validate_alias(&self, key: &str, alias: &str) -> Result<String, String> {
         let alias = alias.trim();
         if alias.is_empty() || alias.chars().count() > MAX_ALIAS_CHARS {
-            return Err(format!("Account alias must be 1-{MAX_ALIAS_CHARS} characters"));
+            return Err(format!(
+                "Account alias must be 1-{MAX_ALIAS_CHARS} characters"
+            ));
         }
         if alias.chars().any(char::is_control) {
             return Err("Account alias cannot contain control characters".into());
@@ -106,7 +108,11 @@ impl StoreData {
     }
 
     /// Pin up to two distinct accounts. `None` clears a slot.
-    pub(crate) fn set_pinned(&mut self, primary: Option<String>, secondary: Option<String>) -> Result<(), String> {
+    pub(crate) fn set_pinned(
+        &mut self,
+        primary: Option<String>,
+        secondary: Option<String>,
+    ) -> Result<(), String> {
         for key in [&primary, &secondary].into_iter().flatten() {
             if self.account(key).is_none() {
                 return Err("Cannot pin an unknown account".into());
@@ -145,8 +151,9 @@ pub(crate) fn load_store(directory: &Path) -> Result<StoreData, String> {
     let path = directory.join(STORE_FILE);
     match fs::read(&path) {
         Ok(bytes) => {
-            let mut data: StoreData = serde_json::from_slice(&bytes)
-                .map_err(|_| "The Codex account list is unreadable; it was left untouched".to_string())?;
+            let mut data: StoreData = serde_json::from_slice(&bytes).map_err(|_| {
+                "The Codex account list is unreadable; it was left untouched".to_string()
+            })?;
             if data.version > 1 {
                 return Err("The Codex account list was written by a newer version".into());
             }
@@ -163,6 +170,7 @@ pub(crate) fn load_store(directory: &Path) -> Result<StoreData, String> {
 }
 
 pub(crate) fn save_store(directory: &Path, data: &StoreData) -> Result<(), String> {
-    let bytes = serde_json::to_vec_pretty(data).map_err(|_| "Failed to serialize the Codex account list".to_string())?;
+    let bytes = serde_json::to_vec_pretty(data)
+        .map_err(|_| "Failed to serialize the Codex account list".to_string())?;
     write_private_atomic(&directory.join(STORE_FILE), &bytes)
 }

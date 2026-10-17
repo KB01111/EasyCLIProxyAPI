@@ -58,7 +58,8 @@ pub(crate) fn scan_cpa_directory(directory: &Path) -> CpaScan {
         let identity = match credential.identity() {
             Ok(identity) => identity,
             Err(_) => {
-                scan.issues.push(format!("{name}: account identity cannot be verified"));
+                scan.issues
+                    .push(format!("{name}: account identity cannot be verified"));
                 continue;
             }
         };
@@ -76,7 +77,10 @@ pub(crate) fn scan_cpa_directory(directory: &Path) -> CpaScan {
     // Two files holding one login: keep the freshest as the canonical source.
     let mut canonical: Vec<CpaCodexFile> = Vec::new();
     for file in std::mem::take(&mut scan.files) {
-        match canonical.iter().position(|kept| kept.identity.key == file.identity.key) {
+        match canonical
+            .iter()
+            .position(|kept| kept.identity.key == file.identity.key)
+        {
             Some(index) => {
                 scan.issues.push(format!(
                     "{} and {} contain the same Codex login",

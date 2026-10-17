@@ -1,6 +1,4 @@
-use super::engine::{
-    AccountEngine, AccountsSnapshot, StateContext, SwitchEnv, SwitchOutcome,
-};
+use super::engine::{AccountEngine, AccountsSnapshot, StateContext, SwitchEnv, SwitchOutcome};
 use super::hotkey::validate_accelerator;
 use super::identity::unix_now;
 use super::native::{running_codex_processes, RunningCodex};
@@ -25,7 +23,8 @@ fn accounts_directory() -> Result<PathBuf, String> {
     #[cfg(windows)]
     let base = env::var_os("LOCALAPPDATA").map(PathBuf::from);
     #[cfg(target_os = "macos")]
-    let base = env::var_os("HOME").map(|home| PathBuf::from(home).join("Library/Application Support"));
+    let base =
+        env::var_os("HOME").map(|home| PathBuf::from(home).join("Library/Application Support"));
     #[cfg(not(any(windows, target_os = "macos")))]
     let base = env::var_os("XDG_DATA_HOME")
         .filter(|value| !value.is_empty())
@@ -67,15 +66,24 @@ impl CodexAccountsState {
     }
 
     pub(crate) fn cached_snapshot(&self) -> Option<AccountsSnapshot> {
-        self.snapshot.lock().ok().and_then(|snapshot| snapshot.clone())
+        self.snapshot
+            .lock()
+            .ok()
+            .and_then(|snapshot| snapshot.clone())
     }
 
     pub(crate) fn quota_summaries(&self) -> Vec<QuotaSummary> {
-        self.quota.lock().map(|quota| quota.clone()).unwrap_or_default()
+        self.quota
+            .lock()
+            .map(|quota| quota.clone())
+            .unwrap_or_default()
     }
 
     pub(crate) fn status_message(&self) -> Option<String> {
-        self.last_message.lock().ok().and_then(|message| message.clone())
+        self.last_message
+            .lock()
+            .ok()
+            .and_then(|message| message.clone())
     }
 
     fn set_message(&self, message: Option<String>) {
@@ -112,7 +120,10 @@ struct Paths {
 }
 
 fn resolve_paths(app: &tauri::AppHandle) -> Result<Paths, String> {
-    let home = app.path().home_dir().map_err(|_| "Failed to get user directory".to_string())?;
+    let home = app
+        .path()
+        .home_dir()
+        .map_err(|_| "Failed to get user directory".to_string())?;
     let config = app.state::<GuiConfigState>().snapshot()?;
     Ok(Paths {
         cpa_dir: auth_dir_path_for_core(&config.auth_dir, &core_install_dir()?)?,
@@ -171,7 +182,10 @@ pub(crate) enum SwitchTarget {
 }
 
 /// Shared by the UI command, the tray and the global shortcut.
-pub(crate) fn perform_codex_account_switch(app: &tauri::AppHandle, target: SwitchTarget) -> Result<SwitchOutcome, String> {
+pub(crate) fn perform_codex_account_switch(
+    app: &tauri::AppHandle,
+    target: SwitchTarget,
+) -> Result<SwitchOutcome, String> {
     let state = app.state::<CodexAccountsState>();
     if state
         .busy
@@ -189,7 +203,9 @@ pub(crate) fn perform_codex_account_switch(app: &tauri::AppHandle, target: Switc
         let key = match target {
             SwitchTarget::Account(key) => key,
             SwitchTarget::Toggle => {
-                let (Some(primary), Some(secondary)) = (&snapshot.pinned.primary, &snapshot.pinned.secondary) else {
+                let (Some(primary), Some(secondary)) =
+                    (&snapshot.pinned.primary, &snapshot.pinned.secondary)
+                else {
                     return Err("Pin two accounts to use the quick-switch toggle".to_string());
                 };
                 if snapshot.active_native.as_deref() == Some(primary.as_str()) {
@@ -213,7 +229,11 @@ pub(crate) fn perform_codex_account_switch(app: &tauri::AppHandle, target: Switc
     match &result {
         Ok(outcome) => {
             state.set_message(Some(outcome.message.clone()));
-            let title = if outcome.status == "blocked" { "Codex account not switched" } else { "Codex account" };
+            let title = if outcome.status == "blocked" {
+                "Codex account not switched"
+            } else {
+                "Codex account"
+            };
             notify(app, title, &outcome.message);
         }
         Err(error) => {
@@ -284,14 +304,12 @@ fn apply_hotkey(app: &tauri::AppHandle, accelerator: Option<&str>) -> Result<(),
         .map_err(|error| format!("The shortcut could not be registered (it may be in use by another application): {error}"))
 }
 
-fn blocking<T: Send + 'static>(
+async fn blocking<T: Send + 'static>(
     task: impl FnOnce() -> Result<T, String> + Send + 'static,
-) -> impl std::future::Future<Output = Result<T, String>> {
-    async move {
-        tauri::async_runtime::spawn_blocking(task)
-            .await
-            .map_err(|_| "Codex account task failed".to_string())?
-    }
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|_| "Codex account task failed".to_string())?
 }
 
 #[tauri::command]
@@ -303,7 +321,10 @@ pub(crate) async fn codex_accounts_get_state(
 }
 
 #[tauri::command]
-pub(crate) async fn codex_accounts_switch(app: tauri::AppHandle, key: String) -> Result<SwitchOutcome, String> {
+pub(crate) async fn codex_accounts_switch(
+    app: tauri::AppHandle,
+    key: String,
+) -> Result<SwitchOutcome, String> {
     blocking(move || perform_codex_account_switch(&app, SwitchTarget::Account(key))).await
 }
 
@@ -313,9 +334,15 @@ pub(crate) async fn codex_accounts_toggle(app: tauri::AppHandle) -> Result<Switc
 }
 
 #[tauri::command]
-pub(crate) async fn codex_accounts_rename(app: tauri::AppHandle, key: String, alias: String) -> Result<(), String> {
+pub(crate) async fn codex_accounts_rename(
+    app: tauri::AppHandle,
+    key: String,
+    alias: String,
+) -> Result<(), String> {
     blocking(move || {
-        app.state::<CodexAccountsState>().engine()?.rename(&key, &alias)?;
+        app.state::<CodexAccountsState>()
+            .engine()?
+            .rename(&key, &alias)?;
         let _ = refresh_snapshot(&app, false, true);
         Ok(())
     })
@@ -329,7 +356,9 @@ pub(crate) async fn codex_accounts_set_pinned(
     secondary: Option<String>,
 ) -> Result<(), String> {
     blocking(move || {
-        app.state::<CodexAccountsState>().engine()?.set_pinned(primary, secondary)?;
+        app.state::<CodexAccountsState>()
+            .engine()?
+            .set_pinned(primary, secondary)?;
         let _ = refresh_snapshot(&app, false, true);
         Ok(())
     })
@@ -337,7 +366,10 @@ pub(crate) async fn codex_accounts_set_pinned(
 }
 
 #[tauri::command]
-pub(crate) async fn codex_accounts_remove(app: tauri::AppHandle, key: String) -> Result<(), String> {
+pub(crate) async fn codex_accounts_remove(
+    app: tauri::AppHandle,
+    key: String,
+) -> Result<(), String> {
     blocking(move || {
         app.state::<CodexAccountsState>().engine()?.remove(&key)?;
         let _ = refresh_snapshot(&app, false, true);
@@ -347,16 +379,20 @@ pub(crate) async fn codex_accounts_remove(app: tauri::AppHandle, key: String) ->
 }
 
 #[tauri::command]
-pub(crate) async fn codex_accounts_adopt_live(app: tauri::AppHandle, alias: String) -> Result<String, String> {
+pub(crate) async fn codex_accounts_adopt_live(
+    app: tauri::AppHandle,
+    alias: String,
+) -> Result<String, String> {
     blocking(move || {
         let _guard = AGENT_CONFIG_FILE_LOCK
             .lock()
             .map_err(|_| "Agent configuration file lock is poisoned".to_string())?;
         let paths = resolve_paths(&app)?;
-        let key = app
-            .state::<CodexAccountsState>()
-            .engine()?
-            .adopt_live(&paths.codex_home, &alias, unix_now())?;
+        let key = app.state::<CodexAccountsState>().engine()?.adopt_live(
+            &paths.codex_home,
+            &alias,
+            unix_now(),
+        )?;
         drop(_guard);
         let _ = refresh_snapshot(&app, false, true);
         Ok(key)
@@ -370,7 +406,12 @@ pub(crate) async fn codex_accounts_update_settings(
     settings: AccountSettings,
 ) -> Result<AccountSettings, String> {
     blocking(move || {
-        if let Some(accelerator) = settings.hotkey.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        if let Some(accelerator) = settings
+            .hotkey
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             validate_accelerator(accelerator)?;
         }
         let engine = app.state::<CodexAccountsState>().engine()?;
@@ -380,7 +421,14 @@ pub(crate) async fn codex_accounts_update_settings(
             if let Err(error) = apply_hotkey(&app, saved.hotkey.as_deref()) {
                 // Roll the setting back: a saved-but-dead shortcut would mislead.
                 let _ = engine.update_settings(previous);
-                let _ = apply_hotkey(&app, engine.settings().ok().and_then(|value| value.hotkey).as_deref());
+                let _ = apply_hotkey(
+                    &app,
+                    engine
+                        .settings()
+                        .ok()
+                        .and_then(|value| value.hotkey)
+                        .as_deref(),
+                );
                 return Err(error);
             }
         }
@@ -409,25 +457,38 @@ pub(crate) async fn codex_accounts_publish_quota(
 
 fn current_recommendation(app: &tauri::AppHandle) -> Result<Recommendation, String> {
     let state = app.state::<CodexAccountsState>();
-    let snapshot = state.cached_snapshot().ok_or("Codex accounts are not loaded yet")?;
-    Ok(recommend(&snapshot.pinned, &snapshot.settings, &state.quota_summaries(), unix_now()))
+    let snapshot = state
+        .cached_snapshot()
+        .ok_or("Codex accounts are not loaded yet")?;
+    Ok(recommend(
+        &snapshot.pinned,
+        &snapshot.settings,
+        &state.quota_summaries(),
+        unix_now(),
+    ))
 }
 
 #[tauri::command]
-pub(crate) async fn codex_accounts_recommendation(app: tauri::AppHandle) -> Result<Recommendation, String> {
+pub(crate) async fn codex_accounts_recommendation(
+    app: tauri::AppHandle,
+) -> Result<Recommendation, String> {
     blocking(move || current_recommendation(&app)).await
 }
 
 #[tauri::command]
 pub(crate) fn codex_accounts_ack_external_change(app: tauri::AppHandle) -> Result<(), String> {
-    app.state::<CodexAccountsState>().engine()?.acknowledge_external_change();
+    app.state::<CodexAccountsState>()
+        .engine()?
+        .acknowledge_external_change();
     Ok(())
 }
 
 #[tauri::command]
 pub(crate) async fn codex_accounts_reset_vault(app: tauri::AppHandle) -> Result<(), String> {
     blocking(move || {
-        app.state::<CodexAccountsState>().engine()?.quarantine_vault()?;
+        app.state::<CodexAccountsState>()
+            .engine()?
+            .quarantine_vault()?;
         let _ = refresh_snapshot(&app, false, true);
         Ok(())
     })

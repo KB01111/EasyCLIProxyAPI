@@ -79,7 +79,9 @@ fn classify_process(name: &str, path: Option<&str>) -> Option<RunningCodex> {
     let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
     let lowered_path = path.map(|path| path.to_ascii_lowercase().replace('\\', "/"));
     let in_desktop_install = lowered_path.as_deref().is_some_and(|path| {
-        path.contains("/windowsapps/") || path.contains("/openai/codex/") || path.contains("/programs/codex/")
+        path.contains("/windowsapps/")
+            || path.contains("/openai/codex/")
+            || path.contains("/programs/codex/")
     });
     match stem {
         "codex" if in_desktop_install => Some("desktop"),
@@ -140,7 +142,9 @@ pub(crate) fn running_codex_processes() -> Vec<RunningCodex> {
             let (Some(pid), Some(command)) = (parts.next(), parts.next()) else {
                 continue;
             };
-            let Ok(pid) = pid.parse::<u32>() else { continue };
+            let Ok(pid) = pid.parse::<u32>() else {
+                continue;
+            };
             let name = Path::new(command.trim())
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -190,7 +194,10 @@ pub(crate) enum RecoveryAction {
     Diverged,
 }
 
-pub(crate) fn plan_recovery(journal: &SwitchJournal, current: &[Option<Vec<u8>>]) -> RecoveryAction {
+pub(crate) fn plan_recovery(
+    journal: &SwitchJournal,
+    current: &[Option<Vec<u8>>],
+) -> RecoveryAction {
     let hash = |bytes: &Option<Vec<u8>>| image_hash(bytes.as_deref());
     let mut written = Vec::new();
     for (index, (file, observed)) in journal.files.iter().zip(current).enumerate() {
@@ -221,12 +228,28 @@ mod tests {
 
     #[test]
     fn classifies_codex_processes_without_matching_unrelated_ones() {
-        assert_eq!(classify_process("codex.exe", Some(r"C:\Users\a\AppData\Roaming\npm\codex.exe")).unwrap().kind, "cli");
         assert_eq!(
-            classify_process("Codex.exe", Some(r"C:\Program Files\WindowsApps\OpenAI.Codex_1\Codex.exe")).unwrap().kind,
+            classify_process(
+                "codex.exe",
+                Some(r"C:\Users\a\AppData\Roaming\npm\codex.exe")
+            )
+            .unwrap()
+            .kind,
+            "cli"
+        );
+        assert_eq!(
+            classify_process(
+                "Codex.exe",
+                Some(r"C:\Program Files\WindowsApps\OpenAI.Codex_1\Codex.exe")
+            )
+            .unwrap()
+            .kind,
             "desktop"
         );
-        assert_eq!(classify_process("codex-app-server", None).unwrap().kind, "cli");
+        assert_eq!(
+            classify_process("codex-app-server", None).unwrap().kind,
+            "cli"
+        );
         assert!(classify_process("chrome.exe", None).is_none());
         assert!(classify_process("chatgpt.exe", Some(r"C:\Tools\chatgpt.exe")).is_none());
         assert!(classify_process("codexbar", None).is_none());
@@ -239,15 +262,27 @@ mod tests {
         assert!(detect_credential_store(&root).supported);
         for (content, mode, supported) in [
             ("cli_auth_credentials_store = \"file\"\n", "file", true),
-            ("cli_auth_credentials_store = \"keyring\"\n", "keyring", false),
+            (
+                "cli_auth_credentials_store = \"keyring\"\n",
+                "keyring",
+                false,
+            ),
             ("cli_auth_credentials_store = \"auto\"\n", "auto", false),
-            ("cli_auth_credentials_store = \"mystery\"\n", "unknown", false),
+            (
+                "cli_auth_credentials_store = \"mystery\"\n",
+                "unknown",
+                false,
+            ),
             ("model = \"x\"\n", "file", true),
             ("not = [valid", "unknown", false),
         ] {
             fs::write(root.join("config.toml"), content).unwrap();
             let status = detect_credential_store(&root);
-            assert_eq!((status.mode.as_str(), status.supported), (mode, supported), "{content}");
+            assert_eq!(
+                (status.mode.as_str(), status.supported),
+                (mode, supported),
+                "{content}"
+            );
         }
         fs::remove_dir_all(root).unwrap();
     }

@@ -75,7 +75,8 @@ impl DpapiProtector {
             });
         }
         // SAFETY: DPAPI returned `cbData` readable bytes at `pbData`.
-        let result = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
+        let result =
+            unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
         // SAFETY: the buffer was allocated by DPAPI with LocalAlloc.
         unsafe { LocalFree(output.pbData as _) };
         Ok(result)
@@ -130,7 +131,8 @@ pub(crate) fn write_private_atomic(path: &Path, content: &[u8]) -> Result<(), St
     let directory = path
         .parent()
         .ok_or_else(|| "Invalid credential path".to_string())?;
-    fs::create_dir_all(directory).map_err(|_| "Failed to create the credential directory".to_string())?;
+    fs::create_dir_all(directory)
+        .map_err(|_| "Failed to create the credential directory".to_string())?;
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -156,7 +158,10 @@ pub(crate) fn write_private_atomic(path: &Path, content: &[u8]) -> Result<(), St
     })();
     if let Err(error) = result {
         let _ = fs::remove_file(&temporary);
-        return Err(format!("Failed to write credential file atomically: {}", error.kind()));
+        return Err(format!(
+            "Failed to write credential file atomically: {}",
+            error.kind()
+        ));
     }
     remember_software_write(path, content);
     Ok(())
@@ -183,9 +188,16 @@ pub(crate) struct Vault {
 }
 
 impl Vault {
-    pub(crate) fn open(directory: PathBuf, protector: Box<dyn KeyProtector>) -> Result<Self, String> {
-        fs::create_dir_all(&directory).map_err(|_| "Failed to create the Codex account vault directory".to_string())?;
-        Ok(Self { directory, protector })
+    pub(crate) fn open(
+        directory: PathBuf,
+        protector: Box<dyn KeyProtector>,
+    ) -> Result<Self, String> {
+        fs::create_dir_all(&directory)
+            .map_err(|_| "Failed to create the Codex account vault directory".to_string())?;
+        Ok(Self {
+            directory,
+            protector,
+        })
     }
 
     pub(crate) fn protection(&self) -> &'static str {
@@ -206,7 +218,8 @@ impl Vault {
                     return Err("The Codex account vault key is missing; reset the vault and re-import accounts".into());
                 }
                 let mut raw = [0u8; 32];
-                getrandom::fill(&mut raw).map_err(|_| "Failed to generate a vault key".to_string())?;
+                getrandom::fill(&mut raw)
+                    .map_err(|_| "Failed to generate a vault key".to_string())?;
                 let wrapped = self.protector.protect(&raw)?;
                 write_private_atomic(&path, &wrapped)?;
                 Ok(raw)
@@ -220,9 +233,16 @@ impl Vault {
         let key = self.key()?;
         let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
         let mut nonce = [0u8; NONCE_LEN];
-        getrandom::fill(&mut nonce).map_err(|_| "Failed to generate an encryption nonce".to_string())?;
+        getrandom::fill(&mut nonce)
+            .map_err(|_| "Failed to generate an encryption nonce".to_string())?;
         let encrypted = cipher
-            .encrypt(Nonce::from_slice(&nonce), Payload { msg: plain, aad: label.as_bytes() })
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: plain,
+                    aad: label.as_bytes(),
+                },
+            )
             .map_err(|_| "Failed to encrypt credential data".to_string())?;
         let mut output = Vec::with_capacity(MAGIC.len() + NONCE_LEN + encrypted.len());
         output.extend_from_slice(MAGIC);
@@ -241,9 +261,15 @@ impl Vault {
         cipher
             .decrypt(
                 Nonce::from_slice(nonce),
-                Payload { msg: &sealed[MAGIC.len() + NONCE_LEN..], aad: label.as_bytes() },
+                Payload {
+                    msg: &sealed[MAGIC.len() + NONCE_LEN..],
+                    aad: label.as_bytes(),
+                },
             )
-            .map_err(|_| "Encrypted credential data failed authentication (tampered or wrong key)".to_string())
+            .map_err(|_| {
+                "Encrypted credential data failed authentication (tampered or wrong key)"
+                    .to_string()
+            })
     }
 
     pub(crate) fn load(&self) -> Result<VaultData, String> {
@@ -251,16 +277,21 @@ impl Vault {
         let sealed = match fs::read(&path) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Ok(VaultData { version: 1, ..Default::default() });
+                return Ok(VaultData {
+                    version: 1,
+                    ..Default::default()
+                });
             }
             Err(_) => return Err("Unable to read the Codex account vault".into()),
         };
         let plain = self.open_sealed("vault", &sealed)?;
-        serde_json::from_slice(&plain).map_err(|_| "The Codex account vault is corrupted".to_string())
+        serde_json::from_slice(&plain)
+            .map_err(|_| "The Codex account vault is corrupted".to_string())
     }
 
     pub(crate) fn save(&self, data: &VaultData) -> Result<(), String> {
-        let plain = serde_json::to_vec(data).map_err(|_| "Failed to serialize the account vault".to_string())?;
+        let plain = serde_json::to_vec(data)
+            .map_err(|_| "Failed to serialize the account vault".to_string())?;
         let sealed = self.seal("vault", &plain)?;
         write_private_atomic(&self.directory.join(VAULT_FILE), &sealed)
     }
@@ -271,8 +302,11 @@ impl Vault {
         for name in [VAULT_FILE, KEY_FILE] {
             let path = self.directory.join(name);
             if path.exists() {
-                fs::rename(&path, self.directory.join(format!("{name}.unusable-{stamp}")))
-                    .map_err(|_| "Failed to move the old vault aside".to_string())?;
+                fs::rename(
+                    &path,
+                    self.directory.join(format!("{name}.unusable-{stamp}")),
+                )
+                .map_err(|_| "Failed to move the old vault aside".to_string())?;
             }
         }
         Ok(())

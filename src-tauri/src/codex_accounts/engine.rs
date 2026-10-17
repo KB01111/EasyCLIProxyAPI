@@ -7,7 +7,9 @@ use super::native::{
     detect_credential_store, plan_recovery, CredentialStoreStatus, JournalFile, RecoveryAction,
     RunningCodex, SwitchJournal, JOURNAL_FILE, JOURNAL_LABEL,
 };
-use super::store::{load_store, save_store, AccountRecord, AccountSettings, PinnedPair, StoreData, SwitchRecord};
+use super::store::{
+    load_store, save_store, AccountRecord, AccountSettings, PinnedPair, StoreData, SwitchRecord,
+};
 use super::vault::{write_private_atomic, KeyProtector, Vault, VaultData, VaultEntry};
 use super::*;
 use std::collections::HashMap;
@@ -74,7 +76,9 @@ fn default_alias(store: &StoreData, identity: &CodexIdentity, file_name: Option<
         .clone()
         .or_else(|| {
             file_name.map(|name| {
-                name.trim_end_matches(".json").trim_end_matches(".JSON").to_string()
+                name.trim_end_matches(".json")
+                    .trim_end_matches(".JSON")
+                    .to_string()
             })
         })
         .filter(|value| !value.trim().is_empty())
@@ -290,7 +294,10 @@ pub(crate) fn atomic_images_writer(_client: &str, images: &Images) -> Result<(),
 }
 
 impl AccountEngine {
-    pub(crate) fn new(directory: PathBuf, protector: Box<dyn KeyProtector>) -> Result<Self, String> {
+    pub(crate) fn new(
+        directory: PathBuf,
+        protector: Box<dyn KeyProtector>,
+    ) -> Result<Self, String> {
         let vault = Vault::open(directory.clone(), protector)?;
         Ok(Self {
             directory,
@@ -341,7 +348,13 @@ impl AccountEngine {
 
     // ----- CPA synchronisation ---------------------------------------------------------------
 
-    fn sync_scan(&self, scan: CpaScan, store: &mut StoreData, vault: &mut VaultData, now: i64) -> SyncReport {
+    fn sync_scan(
+        &self,
+        scan: CpaScan,
+        store: &mut StoreData,
+        vault: &mut VaultData,
+        now: i64,
+    ) -> SyncReport {
         let mut report = SyncReport {
             issues: scan.issues,
             ..Default::default()
@@ -415,7 +428,12 @@ impl AccountEngine {
         let _guard = self.lock()?;
         let (mut store, mut vault) = self.load()?;
         let now = context.now;
-        let mut report = self.sync_scan(scan_cpa_directory(context.cpa_dir), &mut store, &mut vault, now);
+        let mut report = self.sync_scan(
+            scan_cpa_directory(context.cpa_dir),
+            &mut store,
+            &mut vault,
+            now,
+        );
 
         let auth_path = context.codex_home.join(AUTH_FILE);
         let credential_store = detect_credential_store(context.codex_home);
@@ -480,17 +498,24 @@ impl AccountEngine {
             )?;
         }
 
-        let email_counts = store.accounts.iter().fold(HashMap::<String, usize>::new(), |mut counts, account| {
-            if let Some(email) = &account.email {
-                *counts.entry(email.to_ascii_lowercase()).or_default() += 1;
-            }
-            counts
-        });
+        let email_counts =
+            store
+                .accounts
+                .iter()
+                .fold(HashMap::<String, usize>::new(), |mut counts, account| {
+                    if let Some(email) = &account.email {
+                        *counts.entry(email.to_ascii_lowercase()).or_default() += 1;
+                    }
+                    counts
+                });
         let accounts = store
             .accounts
             .iter()
             .map(|record| {
-                let credential = vault.entries.get(&record.key).map(|entry| &entry.credential);
+                let credential = vault
+                    .entries
+                    .get(&record.key)
+                    .map(|entry| &entry.credential);
                 let cpa = report.by_key.get(&record.key);
                 AccountView {
                     key: record.key.clone(),
@@ -498,11 +523,14 @@ impl AccountEngine {
                     email: record.email.clone(),
                     plan: record.plan.clone(),
                     account_id_hint: record.account_id_hint.clone(),
-                    source_file: cpa.map(|state| state.file_name.clone()).or_else(|| record.source_file.clone()),
+                    source_file: cpa
+                        .map(|state| state.file_name.clone())
+                        .or_else(|| record.source_file.clone()),
                     connected: cpa.is_some(),
                     proxy_disabled: cpa.map(|state| state.disabled),
                     cpa_copy: cpa.map_or(CpaCopy::Missing, |state| state.copy),
-                    validity: credential.map_or(CredentialValidity::Expired, |value| value.validity(now)),
+                    validity: credential
+                        .map_or(CredentialValidity::Expired, |value| value.validity(now)),
                     access_expires_at: credential.and_then(CodexCredential::access_expiry),
                     last_refresh: credential.and_then(|value| value.last_refresh.clone()),
                     active_native: live_key.as_deref() == Some(record.key.as_str()),
@@ -513,10 +541,13 @@ impl AccountEngine {
                     } else {
                         None
                     },
-                    duplicate_email: record
-                        .email
-                        .as_ref()
-                        .is_some_and(|email| email_counts.get(&email.to_ascii_lowercase()).copied().unwrap_or(0) > 1),
+                    duplicate_email: record.email.as_ref().is_some_and(|email| {
+                        email_counts
+                            .get(&email.to_ascii_lowercase())
+                            .copied()
+                            .unwrap_or(0)
+                            > 1
+                    }),
                     added_at: record.added_at,
                     last_synced_at: record.last_synced_at,
                     last_activated_at: record.last_activated_at,
@@ -559,14 +590,21 @@ impl AccountEngine {
         save_store(&self.directory, &store)
     }
 
-    pub(crate) fn set_pinned(&self, primary: Option<String>, secondary: Option<String>) -> Result<(), String> {
+    pub(crate) fn set_pinned(
+        &self,
+        primary: Option<String>,
+        secondary: Option<String>,
+    ) -> Result<(), String> {
         let _guard = self.lock()?;
         let mut store = load_store(&self.directory)?;
         store.set_pinned(primary, secondary)?;
         save_store(&self.directory, &store)
     }
 
-    pub(crate) fn update_settings(&self, mut settings: AccountSettings) -> Result<AccountSettings, String> {
+    pub(crate) fn update_settings(
+        &self,
+        mut settings: AccountSettings,
+    ) -> Result<AccountSettings, String> {
         let _guard = self.lock()?;
         StoreData::sanitize_settings(&mut settings);
         let mut store = load_store(&self.directory)?;
@@ -597,7 +635,12 @@ impl AccountEngine {
     // ----- Adopt the live login --------------------------------------------------------------
 
     /// Explicitly add the login currently in native `auth.json` as a new managed account.
-    pub(crate) fn adopt_live(&self, codex_home: &Path, alias: &str, now: i64) -> Result<String, String> {
+    pub(crate) fn adopt_live(
+        &self,
+        codex_home: &Path,
+        alias: &str,
+        now: i64,
+    ) -> Result<String, String> {
         let _guard = self.lock()?;
         let (mut store, mut vault) = self.load()?;
         let bytes = read_agent_bytes(&codex_home.join(AUTH_FILE))?;
@@ -627,7 +670,11 @@ impl AccountEngine {
 
     // ----- Switching -------------------------------------------------------------------------
 
-    pub(crate) fn switch(&self, env: &SwitchEnv<'_>, target: &str) -> Result<SwitchOutcome, String> {
+    pub(crate) fn switch(
+        &self,
+        env: &SwitchEnv<'_>,
+        target: &str,
+    ) -> Result<SwitchOutcome, String> {
         self.switch_with(env, target, &mut atomic_images_writer)
     }
 
@@ -652,10 +699,18 @@ impl AccountEngine {
         };
 
         let Some(record) = store.account(target).cloned() else {
-            return block("target_unknown", "The selected account is not managed by the Account Center", None);
+            return block(
+                "target_unknown",
+                "The selected account is not managed by the Account Center",
+                None,
+            );
         };
         let Some(target_entry) = vault.entries.get(target).cloned() else {
-            return block("target_missing_credentials", "No saved credentials exist for this account; add it again", None);
+            return block(
+                "target_missing_credentials",
+                "No saved credentials exist for this account; add it again",
+                None,
+            );
         };
         let credential_store = detect_credential_store(env.codex_home);
         if !credential_store.supported {
@@ -761,7 +816,9 @@ impl AccountEngine {
                     record_root.insert("native_auth".into(), serde_json::Value::String(rendered));
                     after_state = Some(
                         serde_json::to_vec_pretty(&serde_json::Value::Object(record_root))
-                            .map_err(|_| "Failed to update the Codex access mode record".to_string())?,
+                            .map_err(|_| {
+                                "Failed to update the Codex access mode record".to_string()
+                            })?,
                     );
                 }
             }
@@ -791,7 +848,8 @@ impl AccountEngine {
         let journal_path = self.directory.join(JOURNAL_FILE);
         let sealed = self.vault.seal(
             JOURNAL_LABEL,
-            &serde_json::to_vec(&journal).map_err(|_| "Failed to prepare the switch journal".to_string())?,
+            &serde_json::to_vec(&journal)
+                .map_err(|_| "Failed to prepare the switch journal".to_string())?,
         )?;
         write_private_atomic(&journal_path, &sealed)?;
 
@@ -818,7 +876,10 @@ impl AccountEngine {
         let verify_started = Instant::now();
         let verified = config_images(&paths).ok().and_then(|current| {
             match parse_native_auth(current[0].1.as_deref()) {
-                Ok(NativeAuth::OAuth(live)) => live.identity().ok().filter(|identity| identity.key == target),
+                Ok(NativeAuth::OAuth(live)) => live
+                    .identity()
+                    .ok()
+                    .filter(|identity| identity.key == target),
                 _ => None,
             }
         });
@@ -891,27 +952,48 @@ impl AccountEngine {
             message: message.to_string(),
             at: now,
         };
-        let journal: SwitchJournal = match self
-            .vault
-            .open_sealed(JOURNAL_LABEL, &sealed)
-            .and_then(|plain| serde_json::from_slice(&plain).map_err(|_| "Switch journal is corrupted".to_string()))
-        {
-            Ok(journal) => journal,
-            Err(message) => {
-                // Keep the evidence; do not guess.
-                let _ = fs::rename(&journal_path, self.directory.join(format!("{JOURNAL_FILE}.unreadable-{now}")));
-                let result = report("failed", &message);
-                *self.recovery.lock().map_err(|_| "Recovery state lock is poisoned".to_string())? = Some(result.clone());
-                return Ok(Some(result));
-            }
-        };
-        let paths = journal.files.iter().map(|file| file.path.clone()).collect::<Vec<_>>();
+        let journal: SwitchJournal =
+            match self
+                .vault
+                .open_sealed(JOURNAL_LABEL, &sealed)
+                .and_then(|plain| {
+                    serde_json::from_slice(&plain)
+                        .map_err(|_| "Switch journal is corrupted".to_string())
+                }) {
+                Ok(journal) => journal,
+                Err(message) => {
+                    // Keep the evidence; do not guess.
+                    let _ = fs::rename(
+                        &journal_path,
+                        self.directory
+                            .join(format!("{JOURNAL_FILE}.unreadable-{now}")),
+                    );
+                    let result = report("failed", &message);
+                    *self
+                        .recovery
+                        .lock()
+                        .map_err(|_| "Recovery state lock is poisoned".to_string())? =
+                        Some(result.clone());
+                    return Ok(Some(result));
+                }
+            };
+        let paths = journal
+            .files
+            .iter()
+            .map(|file| file.path.clone())
+            .collect::<Vec<_>>();
         let current = config_images(&paths)?;
-        let observed = current.iter().map(|(_, bytes)| bytes.clone()).collect::<Vec<_>>();
+        let observed = current
+            .iter()
+            .map(|(_, bytes)| bytes.clone())
+            .collect::<Vec<_>>();
         let result = match plan_recovery(&journal, &observed) {
             RecoveryAction::Untouched => {
                 let _ = fs::remove_file(&journal_path);
-                report("untouched", "An interrupted account switch had not changed any files")
+                report(
+                    "untouched",
+                    "An interrupted account switch had not changed any files",
+                )
             }
             RecoveryAction::Completed => {
                 let mut store = load_store(&self.directory)?;
@@ -923,30 +1005,53 @@ impl AccountEngine {
                 });
                 save_store(&self.directory, &store)?;
                 let _ = fs::remove_file(&journal_path);
-                report("completed", "An interrupted account switch had completed; state was updated")
+                report(
+                    "completed",
+                    "An interrupted account switch had completed; state was updated",
+                )
             }
             RecoveryAction::RollBack(indexes) => {
                 let restore: Images = indexes
                     .into_iter()
-                    .map(|index| (journal.files[index].path.clone(), journal.files[index].before.clone()))
+                    .map(|index| {
+                        (
+                            journal.files[index].path.clone(),
+                            journal.files[index].before.clone(),
+                        )
+                    })
                     .collect();
-                let paths_to_check = restore.iter().map(|(path, _)| path.clone()).collect::<Vec<_>>();
+                let paths_to_check = restore
+                    .iter()
+                    .map(|(path, _)| path.clone())
+                    .collect::<Vec<_>>();
                 atomic_images_writer("codex", &restore)?;
                 if config_images(&paths_to_check)? != restore {
-                    return Err("Restoring the interrupted account switch could not be verified".into());
+                    return Err(
+                        "Restoring the interrupted account switch could not be verified".into(),
+                    );
                 }
                 let _ = fs::remove_file(&journal_path);
-                report("rolled_back", "An interrupted account switch was rolled back")
+                report(
+                    "rolled_back",
+                    "An interrupted account switch was rolled back",
+                )
             }
             RecoveryAction::Diverged => {
-                let _ = fs::rename(&journal_path, self.directory.join(format!("{JOURNAL_FILE}.diverged-{now}")));
+                let _ = fs::rename(
+                    &journal_path,
+                    self.directory
+                        .join(format!("{JOURNAL_FILE}.diverged-{now}")),
+                );
                 report(
                     "diverged",
                     "Codex credentials changed after an interrupted account switch; they were left untouched",
                 )
             }
         };
-        *self.recovery.lock().map_err(|_| "Recovery state lock is poisoned".to_string())? = Some(result.clone());
+        *self
+            .recovery
+            .lock()
+            .map_err(|_| "Recovery state lock is poisoned".to_string())? = Some(result.clone());
         Ok(Some(result))
     }
 }

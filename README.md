@@ -72,6 +72,42 @@ The OAuth page centralizes browser-based authorization for supported providers:
 EasyCLIProxyAPI opens the authorization page in the browser and supports completing the callback
 flow when an automatic redirect is unavailable.
 
+### Codex Account Center
+
+The **Codex Accounts** page manages several ChatGPT/Codex logins side by side and lets you switch the
+account used by the native Codex CLI with a single click, from the tray, or with an optional global
+shortcut.
+
+- **Connect accounts** with the normal Codex OAuth login. Every `type: codex` credential in the CPA
+  credentials directory shows up automatically; each login is identified by its verified ChatGPT account
+  and user id (not by email), so two logins with the same email stay distinct.
+- **Pin two accounts** (Primary / Secondary) for quick switching. *Switch to A*, *Switch to B* and
+  *Toggle A ↔ B* are available in the page, the tray and the optional shortcut (disabled until you set
+  one, for example `Ctrl+Alt+F9`). The third account stays connected and selectable from the list.
+- **Real quota** per account comes from the existing quota service (provider-reported windows and
+  resets). Missing or old data is shown as unavailable/stale; nothing is estimated. An optional,
+  advisory recommendation compares the two pinned accounts using fresh data only and never switches
+  anything by itself.
+- **Safe native switching** edits only the credential fields of `auth.json` in the effective
+  `CODEX_HOME`, through an encrypted write-ahead journal, an atomic replace and a post-write identity
+  check. It refuses to run while Codex is running, when the login in `auth.json` is not one of your
+  managed accounts, in API-key/CPA-proxy mode, or when Codex keeps credentials in the OS credential
+  store (`cli_auth_credentials_store = "keyring"` or `"auto"`; set it to `"file"` to enable switching).
+  Interrupted switches are rolled back or completed on the next start.
+- **Credentials** are kept in an AES-256-GCM vault whose key is protected with Windows DPAPI (current
+  user). The web UI only ever receives aliases, masked identifiers, plan, validity and quota numbers.
+- **Proxy routing is independent**: all connected accounts stay usable through CLIProxyAPI. The optional
+  routing presets (use A+B only, prefer A/B) use the core's existing `disabled`/`priority` credential
+  settings and are labelled global because they affect every client of the local proxy.
+
+**Codex Desktop:** account switching in the desktop app is not an officially supported feature and has
+**not been verified** against an installed Desktop build. The page therefore always reports Desktop as
+*Unverified*: after a switch, restart Codex Desktop and confirm the account it shows. The app never
+closes Codex for you and never touches Desktop's private data.
+
+See [docs/CODEX_ACCOUNT_CENTER_PLAN.md](docs/CODEX_ACCOUNT_CENTER_PLAN.md) for the architecture,
+security model and limitations.
+
 ### API provider aggregation
 
 ![API provider aggregation](docs/screenshots/en/3.png)

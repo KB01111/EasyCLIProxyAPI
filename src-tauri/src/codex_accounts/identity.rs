@@ -102,7 +102,12 @@ fn parse_timestamp(value: &str) -> Option<i64> {
 
 pub(crate) fn derive_account_key(account_id: &str, user_id: Option<&str>) -> String {
     let digest = sha256_bytes(
-        format!("codex-account-v1\0{}\0{}", account_id, user_id.unwrap_or("")).as_bytes(),
+        format!(
+            "codex-account-v1\0{}\0{}",
+            account_id,
+            user_id.unwrap_or("")
+        )
+        .as_bytes(),
     );
     format!("cx_{}", &digest[..20])
 }
@@ -116,7 +121,9 @@ pub(crate) fn mask_identifier(value: &str) -> String {
     format!(
         "{}…{}",
         characters[..4].iter().collect::<String>(),
-        characters[characters.len() - 4..].iter().collect::<String>()
+        characters[characters.len() - 4..]
+            .iter()
+            .collect::<String>()
     )
 }
 
@@ -135,7 +142,8 @@ impl CodexCredential {
         let claimed_account = id_auth
             .and_then(|auth| claim_string(auth, "chatgpt_account_id"))
             .or_else(|| access_auth.and_then(|auth| claim_string(auth, "chatgpt_account_id")));
-        let stored_account = Some(self.tokens.account_id.trim().to_string()).filter(|value| !value.is_empty());
+        let stored_account =
+            Some(self.tokens.account_id.trim().to_string()).filter(|value| !value.is_empty());
         let account_id = match (stored_account, claimed_account) {
             (Some(stored), Some(claimed)) if stored != claimed => {
                 return Err("Credential account id does not match its ID token".into());
@@ -144,9 +152,15 @@ impl CodexCredential {
             (None, None) => return Err("Credential has no verifiable account identifier".into()),
         };
         let user_id = id_auth
-            .and_then(|auth| claim_string(auth, "chatgpt_user_id").or_else(|| claim_string(auth, "user_id")))
+            .and_then(|auth| {
+                claim_string(auth, "chatgpt_user_id").or_else(|| claim_string(auth, "user_id"))
+            })
             .or_else(|| access_auth.and_then(|auth| claim_string(auth, "chatgpt_user_id")))
-            .or_else(|| id_claims.as_ref().and_then(|claims| claim_string(claims, "sub")));
+            .or_else(|| {
+                id_claims
+                    .as_ref()
+                    .and_then(|claims| claim_string(claims, "sub"))
+            });
         let email = id_claims
             .as_ref()
             .and_then(|claims| claim_string(claims, "email"))

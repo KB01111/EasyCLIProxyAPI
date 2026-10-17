@@ -34,7 +34,10 @@ pub(crate) fn validate_accelerator(value: &str) -> Result<String, String> {
     }
     let mut modifiers: Vec<&'static str> = Vec::new();
     let mut keys: Vec<String> = Vec::new();
-    for token in trimmed.split('+').map(|token| token.trim().to_ascii_lowercase()) {
+    for token in trimmed
+        .split('+')
+        .map(|token| token.trim().to_ascii_lowercase())
+    {
         if token.is_empty() {
             return Err("The shortcut contains an empty key".into());
         }
@@ -52,16 +55,27 @@ pub(crate) fn validate_accelerator(value: &str) -> Result<String, String> {
         return Err("A shortcut needs exactly one non-modifier key".into());
     };
     if modifiers.len() < 2 {
-        return Err("Use at least two modifier keys (for example Ctrl+Alt) to avoid conflicts".into());
+        return Err(
+            "Use at least two modifier keys (for example Ctrl+Alt) to avoid conflicts".into(),
+        );
     }
-    let is_character = key.chars().count() == 1 && key.chars().all(|character| character.is_ascii_alphanumeric());
-    if is_character && modifiers.len() == 2 && modifiers.contains(&"ctrl") && modifiers.contains(&"shift") {
+    let is_character = key.chars().count() == 1
+        && key
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric());
+    if is_character
+        && modifiers.len() == 2
+        && modifiers.contains(&"ctrl")
+        && modifiers.contains(&"shift")
+    {
         return Err("Ctrl+Shift+letter shortcuts collide with browsers and editors; choose another combination".into());
     }
     if RESERVED.iter().any(|(reserved_modifiers, reserved_key)| {
         *reserved_key == key.as_str()
             && reserved_modifiers.len() <= modifiers.len()
-            && reserved_modifiers.iter().all(|name| modifiers.contains(name))
+            && reserved_modifiers
+                .iter()
+                .all(|name| modifiers.contains(name))
     }) {
         return Err("That shortcut is reserved by Windows".into());
     }
@@ -74,7 +88,13 @@ mod tests {
 
     #[test]
     fn accepts_distinctive_chords() {
-        for accelerator in ["Ctrl+Alt+F9", "ctrl + alt + k", "CommandOrControl+Alt+F10", "Alt+Shift+F8", "Ctrl+Shift+F12"] {
+        for accelerator in [
+            "Ctrl+Alt+F9",
+            "ctrl + alt + k",
+            "CommandOrControl+Alt+F10",
+            "Alt+Shift+F8",
+            "Ctrl+Shift+F12",
+        ] {
             assert!(validate_accelerator(accelerator).is_ok(), "{accelerator}");
         }
     }

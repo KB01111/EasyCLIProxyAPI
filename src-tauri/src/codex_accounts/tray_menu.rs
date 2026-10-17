@@ -18,16 +18,28 @@ pub(crate) struct CodexTrayMenu(pub(crate) Submenu<tauri::Wry>);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Entry {
     Separator,
-    Item { id: String, text: String, enabled: bool },
+    Item {
+        id: String,
+        text: String,
+        enabled: bool,
+    },
 }
 
 fn info(text: String) -> Entry {
     // Ids of informational rows are assigned once the full list is known (see `build_entries`).
-    Entry::Item { id: String::new(), text, enabled: false }
+    Entry::Item {
+        id: String::new(),
+        text,
+        enabled: false,
+    }
 }
 
 fn action(id: impl Into<String>, text: String, enabled: bool) -> Entry {
-    Entry::Item { id: id.into(), text, enabled }
+    Entry::Item {
+        id: id.into(),
+        text,
+        enabled,
+    }
 }
 
 fn truncate(message: &str) -> String {
@@ -52,7 +64,11 @@ pub(crate) fn build_entries(
     let refresh = action(REFRESH_ID, text(NativeText::CodexRefresh).into(), !busy);
     let open = action(OPEN_ID, text(NativeText::CodexOpenCenter).into(), true);
     let Some(snapshot) = snapshot.filter(|snapshot| !snapshot.accounts.is_empty()) else {
-        let mut entries = vec![info(text(NativeText::CodexNoAccounts).into()), Entry::Separator, open];
+        let mut entries = vec![
+            info(text(NativeText::CodexNoAccounts).into()),
+            Entry::Separator,
+            open,
+        ];
         number_info_rows(&mut entries);
         return entries;
     };
@@ -60,7 +76,9 @@ pub(crate) fn build_entries(
         .accounts
         .iter()
         .find(|account| account.active_native)
-        .map_or(text(NativeText::CodexNoActive), |account| account.alias.as_str());
+        .map_or(text(NativeText::CodexNoActive), |account| {
+            account.alias.as_str()
+        });
     let mut entries = vec![info(format!("{}: {active}", text(NativeText::CodexActive)))];
     if busy {
         entries.push(info(text(NativeText::CodexSwitching).into()));
@@ -85,7 +103,11 @@ pub(crate) fn build_entries(
         let detail = match line.remaining_pct {
             None => text(NativeText::CodexQuotaUnavailable).to_string(),
             Some(pct) if line.stale => {
-                format!("{pct:.0}% {} ({})", text(NativeText::CodexRemaining), text(NativeText::CodexStale))
+                format!(
+                    "{pct:.0}% {} ({})",
+                    text(NativeText::CodexRemaining),
+                    text(NativeText::CodexStale)
+                )
             }
             Some(pct) => format!("{pct:.0}% {}", text(NativeText::CodexRemaining)),
         };
@@ -94,7 +116,10 @@ pub(crate) fn build_entries(
     entries.push(Entry::Separator);
 
     let mut pinned_ready = 0;
-    for key in [&snapshot.pinned.primary, &snapshot.pinned.secondary].into_iter().flatten() {
+    for key in [&snapshot.pinned.primary, &snapshot.pinned.secondary]
+        .into_iter()
+        .flatten()
+    {
         if let Some(account) = snapshot.accounts.iter().find(|account| &account.key == key) {
             pinned_ready += 1;
             entries.push(action(
@@ -104,7 +129,11 @@ pub(crate) fn build_entries(
             ));
         }
     }
-    entries.push(action(TOGGLE_ID, text(NativeText::CodexToggle).into(), !busy && pinned_ready == 2));
+    entries.push(action(
+        TOGGLE_ID,
+        text(NativeText::CodexToggle).into(),
+        !busy && pinned_ready == 2,
+    ));
     entries.push(Entry::Separator);
     entries.push(refresh);
     entries.push(open);
@@ -122,7 +151,11 @@ fn number_info_rows(entries: &mut [Entry]) {
     }
 }
 
-fn apply(submenu: &Submenu<tauri::Wry>, app: &tauri::AppHandle, entries: &[Entry]) -> tauri::Result<()> {
+fn apply(
+    submenu: &Submenu<tauri::Wry>,
+    app: &tauri::AppHandle,
+    entries: &[Entry],
+) -> tauri::Result<()> {
     for item in submenu.items()? {
         submenu.remove(&item)?;
     }
@@ -145,9 +178,21 @@ fn locale(app: &tauri::AppHandle) -> String {
 }
 
 /// Create the submenu (initially "loading"-free: just the open action) during tray setup.
-pub(crate) fn create_submenu(app: &tauri::App<tauri::Wry>, locale: &str) -> tauri::Result<Submenu<tauri::Wry>> {
-    let submenu = Submenu::with_id(app, CODEX_TRAY_SUBMENU_ID, native_text(locale, NativeText::CodexAccounts), true)?;
-    apply(&submenu, app.handle(), &build_entries(locale, None, &[], 0, false, None))?;
+pub(crate) fn create_submenu(
+    app: &tauri::App<tauri::Wry>,
+    locale: &str,
+) -> tauri::Result<Submenu<tauri::Wry>> {
+    let submenu = Submenu::with_id(
+        app,
+        CODEX_TRAY_SUBMENU_ID,
+        native_text(locale, NativeText::CodexAccounts),
+        true,
+    )?;
+    apply(
+        &submenu,
+        app.handle(),
+        &build_entries(locale, None, &[], 0, false, None),
+    )?;
     Ok(submenu)
 }
 
@@ -169,7 +214,10 @@ pub(crate) fn update_codex_tray(app: &tauri::AppHandle) {
     let handle = app.clone();
     let title = native_text(&locale, NativeText::CodexAccounts);
     let _ = app.run_on_main_thread(move || {
-        if let Err(error) = submenu.set_text(title).and_then(|_| apply(&submenu, &handle, &entries)) {
+        if let Err(error) = submenu
+            .set_text(title)
+            .and_then(|_| apply(&submenu, &handle, &entries))
+        {
             eprintln!("Failed to update the Codex accounts tray section: {error}");
         }
     });
@@ -241,7 +289,9 @@ mod tests {
         fs::create_dir_all(&cpa).unwrap();
         fs::create_dir_all(&codex).unwrap();
         let credential = |account: &str, user: &str, email: &str| {
-            let encode = |value: &[u8]| base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, value);
+            let encode = |value: &[u8]| {
+                base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, value)
+            };
             let claims = serde_json::json!({
                 "email": email,
                 "https://api.openai.com/auth": {"chatgpt_account_id": account, "chatgpt_user_id": user}
@@ -254,30 +304,77 @@ mod tests {
                 "account_id": account,
             })
         };
-        fs::write(cpa.join("a.json"), credential("acct-a-000001", "u-a", "a@example.test").to_string()).unwrap();
-        fs::write(cpa.join("b.json"), credential("acct-b-000002", "u-b", "b@example.test").to_string()).unwrap();
+        fs::write(
+            cpa.join("a.json"),
+            credential("acct-a-000001", "u-a", "a@example.test").to_string(),
+        )
+        .unwrap();
+        fs::write(
+            cpa.join("b.json"),
+            credential("acct-b-000002", "u-b", "b@example.test").to_string(),
+        )
+        .unwrap();
         let engine = AccountEngine::new(root.join("accounts"), platform_protector()).unwrap();
         let now = 1_800_000_000;
         let snapshot = engine
-            .state(&StateContext { cpa_dir: &cpa, codex_home: &codex, now, running: None })
+            .state(&StateContext {
+                cpa_dir: &cpa,
+                codex_home: &codex,
+                now,
+                running: None,
+            })
             .unwrap();
-        let (a, b) = (snapshot.accounts[0].key.clone(), snapshot.accounts[1].key.clone());
+        let (a, b) = (
+            snapshot.accounts[0].key.clone(),
+            snapshot.accounts[1].key.clone(),
+        );
         engine.set_pinned(Some(a.clone()), Some(b.clone())).unwrap();
         let snapshot = engine
-            .state(&StateContext { cpa_dir: &cpa, codex_home: &codex, now, running: None })
+            .state(&StateContext {
+                cpa_dir: &cpa,
+                codex_home: &codex,
+                now,
+                running: None,
+            })
             .unwrap();
 
-        let entries = build_entries("en", Some(&snapshot), &[summary(&a, 18.0, now - 60), summary(&b, 82.0, now - 10 * 3600)], now, false, None);
+        let entries = build_entries(
+            "en",
+            Some(&snapshot),
+            &[
+                summary(&a, 18.0, now - 60),
+                summary(&b, 82.0, now - 10 * 3600),
+            ],
+            now,
+            false,
+            None,
+        );
         let lines = texts(&entries);
-        assert!(lines[0].starts_with("Active native account: none"), "{lines:?}");
+        assert!(
+            lines[0].starts_with("Active native account: none"),
+            "{lines:?}"
+        );
         assert!(lines.iter().any(|line| line.contains("18% remaining")));
-        assert!(lines.iter().any(|line| line.contains("82% remaining (stale)")), "{lines:?}");
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("82% remaining (stale)")),
+            "{lines:?}"
+        );
         assert!(lines.contains(&format!("Switch to {}", snapshot.accounts[0].alias)));
-        assert!(entries.iter().any(|entry| matches!(entry, Entry::Item { id, enabled: true, .. } if id == TOGGLE_ID)));
+        assert!(entries.iter().any(
+            |entry| matches!(entry, Entry::Item { id, enabled: true, .. } if id == TOGGLE_ID)
+        ));
 
         // No quota published for an account: say so instead of inventing a number.
         let lines = texts(&build_entries("en", Some(&snapshot), &[], now, false, None));
-        assert_eq!(lines.iter().filter(|line| line.contains("quota unavailable")).count(), 2);
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line.contains("quota unavailable"))
+                .count(),
+            2
+        );
 
         // While switching nothing is clickable except Open; localized text is used.
         let busy = build_entries("ja", Some(&snapshot), &[], now, true, None);
@@ -286,18 +383,33 @@ mod tests {
 
         // An unpinned pair disables the toggle.
         engine.set_pinned(Some(a), None).unwrap();
-        let snapshot = engine.state(&StateContext { cpa_dir: &cpa, codex_home: &codex, now, running: None }).unwrap();
+        let snapshot = engine
+            .state(&StateContext {
+                cpa_dir: &cpa,
+                codex_home: &codex,
+                now,
+                running: None,
+            })
+            .unwrap();
         let entries = build_entries("en", Some(&snapshot), &[], now, false, None);
-        assert!(entries.iter().any(|entry| matches!(entry, Entry::Item { id, enabled: false, .. } if id == TOGGLE_ID)));
+        assert!(entries.iter().any(
+            |entry| matches!(entry, Entry::Item { id, enabled: false, .. } if id == TOGGLE_ID)
+        ));
 
         let empty = build_entries("en", None, &[], now, false, None);
-        assert_eq!(texts(&empty), vec!["No Codex accounts yet", "Open Account Center"]);
+        assert_eq!(
+            texts(&empty),
+            vec!["No Codex accounts yet", "Open Account Center"]
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn long_messages_are_truncated_for_the_menu() {
-        assert_eq!(truncate(&"x".repeat(100)).chars().count(), MESSAGE_LIMIT + 1);
+        assert_eq!(
+            truncate(&"x".repeat(100)).chars().count(),
+            MESSAGE_LIMIT + 1
+        );
         assert_eq!(truncate("short"), "short");
     }
 }

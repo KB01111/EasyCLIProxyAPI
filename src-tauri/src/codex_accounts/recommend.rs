@@ -42,7 +42,10 @@ impl QuotaSummary {
         };
         self.short_remaining_pct = clean(self.short_remaining_pct);
         self.weekly_remaining_pct = clean(self.weekly_remaining_pct);
-        if !matches!(self.status.as_str(), "ok" | "rate_limited" | "auth_error" | "unavailable") {
+        if !matches!(
+            self.status.as_str(),
+            "ok" | "rate_limited" | "auth_error" | "unavailable"
+        ) {
             self.status = "unavailable".into();
         }
         (!self.key.is_empty() && self.fetched_at > 0).then_some(self)
@@ -84,7 +87,12 @@ pub(crate) struct Recommendation {
     pub(crate) secondary_pct: Option<f64>,
 }
 
-fn verdict(code: &'static str, primary: Option<f64>, secondary: Option<f64>, recommended: Option<String>) -> Recommendation {
+fn verdict(
+    code: &'static str,
+    primary: Option<f64>,
+    secondary: Option<f64>,
+    recommended: Option<String>,
+) -> Recommendation {
     Recommendation {
         recommended,
         code,
@@ -114,13 +122,23 @@ pub(crate) fn recommend(
         .iter()
         .any(|summary| now - summary.fetched_at > stale_after_seconds(settings))
     {
-        return verdict("data_stale", first.effective_pct(), second.effective_pct(), None);
+        return verdict(
+            "data_stale",
+            first.effective_pct(),
+            second.effective_pct(),
+            None,
+        );
     }
     if first.status == "auth_error" || second.status == "auth_error" {
         return verdict("auth_error", None, None, None);
     }
     let (Some(a), Some(b)) = (first.effective_pct(), second.effective_pct()) else {
-        return verdict("data_missing", first.effective_pct(), second.effective_pct(), None);
+        return verdict(
+            "data_missing",
+            first.effective_pct(),
+            second.effective_pct(),
+            None,
+        );
     };
     let (pick_a, pick_b) = (Some(primary.clone()), Some(secondary.clone()));
     if a <= 0.0 && b > 0.0 {
@@ -132,7 +150,12 @@ pub(crate) fn recommend(
     if (a - b).abs() < SIMILAR_POINTS {
         return verdict("similar", Some(a), Some(b), None);
     }
-    verdict("more_capacity", Some(a), Some(b), if a > b { pick_a } else { pick_b })
+    verdict(
+        "more_capacity",
+        Some(a),
+        Some(b),
+        if a > b { pick_a } else { pick_b },
+    )
 }
 
 /// One account line in the tray: numbers only; the tray localizes the wording.
@@ -145,7 +168,11 @@ pub(crate) struct TrayLine {
     pub(crate) active: bool,
 }
 
-pub(crate) fn tray_lines(snapshot: &AccountsSnapshot, summaries: &[QuotaSummary], now: i64) -> Vec<TrayLine> {
+pub(crate) fn tray_lines(
+    snapshot: &AccountsSnapshot,
+    summaries: &[QuotaSummary],
+    now: i64,
+) -> Vec<TrayLine> {
     let stale_after = stale_after_seconds(&snapshot.settings);
     snapshot
         .accounts
@@ -167,7 +194,13 @@ pub(crate) fn tray_lines(snapshot: &AccountsSnapshot, summaries: &[QuotaSummary]
 mod tests {
     use super::*;
 
-    fn summary(key: &str, short: Option<f64>, weekly: Option<f64>, fetched_at: i64, status: &str) -> QuotaSummary {
+    fn summary(
+        key: &str,
+        short: Option<f64>,
+        weekly: Option<f64>,
+        fetched_at: i64,
+        status: &str,
+    ) -> QuotaSummary {
         QuotaSummary {
             key: key.into(),
             short_remaining_pct: short,
@@ -196,7 +229,10 @@ mod tests {
         let result = recommend(&pair(), &AccountSettings::default(), &summaries, now);
         assert_eq!(result.recommended.as_deref(), Some("b"));
         assert_eq!(result.code, "more_capacity");
-        assert_eq!((result.primary_pct, result.secondary_pct), (Some(18.0), Some(80.0)));
+        assert_eq!(
+            (result.primary_pct, result.secondary_pct),
+            (Some(18.0), Some(80.0))
+        );
     }
 
     #[test]
@@ -207,7 +243,10 @@ mod tests {
             summary("b", Some(20.0), Some(30.0), now, "ok"),
         ];
         let result = recommend(&pair(), &AccountSettings::default(), &summaries, now);
-        assert_eq!((result.recommended.as_deref(), result.code), (Some("b"), "other_exhausted"));
+        assert_eq!(
+            (result.recommended.as_deref(), result.code),
+            (Some("b"), "other_exhausted")
+        );
     }
 
     #[test]
@@ -215,18 +254,39 @@ mod tests {
         let now = 100_000;
         let settings = AccountSettings::default();
         let old = now - stale_after_seconds(&settings) - 1;
-        let stale = vec![summary("a", Some(10.0), None, old, "ok"), summary("b", Some(90.0), None, now, "ok")];
-        assert_eq!(recommend(&pair(), &settings, &stale, now).code, "data_stale");
+        let stale = vec![
+            summary("a", Some(10.0), None, old, "ok"),
+            summary("b", Some(90.0), None, now, "ok"),
+        ];
+        assert_eq!(
+            recommend(&pair(), &settings, &stale, now).code,
+            "data_stale"
+        );
         let missing = vec![summary("a", Some(10.0), None, now, "ok")];
-        assert_eq!(recommend(&pair(), &settings, &missing, now).code, "data_missing");
-        let auth = vec![summary("a", None, None, now, "auth_error"), summary("b", Some(90.0), None, now, "ok")];
+        assert_eq!(
+            recommend(&pair(), &settings, &missing, now).code,
+            "data_missing"
+        );
+        let auth = vec![
+            summary("a", None, None, now, "auth_error"),
+            summary("b", Some(90.0), None, now, "ok"),
+        ];
         let result = recommend(&pair(), &settings, &auth, now);
         assert_eq!((result.code, result.recommended), ("auth_error", None));
-        let close = vec![summary("a", Some(50.0), None, now, "ok"), summary("b", Some(53.0), None, now, "ok")];
+        let close = vec![
+            summary("a", Some(50.0), None, now, "ok"),
+            summary("b", Some(53.0), None, now, "ok"),
+        ];
         assert_eq!(recommend(&pair(), &settings, &close, now).code, "similar");
-        let disabled = AccountSettings { recommendations: false, ..settings.clone() };
+        let disabled = AccountSettings {
+            recommendations: false,
+            ..settings.clone()
+        };
         assert_eq!(recommend(&pair(), &disabled, &close, now).code, "disabled");
-        assert_eq!(recommend(&PinnedPair::default(), &settings, &close, now).code, "pair_incomplete");
+        assert_eq!(
+            recommend(&PinnedPair::default(), &settings, &close, now).code,
+            "pair_incomplete"
+        );
     }
 
     #[test]
