@@ -151,12 +151,12 @@ proxy routing-pool presets.
 * `cargo test`: 937 passed, 2 failed. The two failures
   (`agents::backups::…::linked_configuration_and_backup_directories_are_rejected`,
   `tests::agent_configuration::agent_probe_command_stops_at_timeout`) fail identically on the untouched
-  base commit in this sandbox and are unrelated. 52 of the passing tests are the new `codex_accounts` suite.
+  base commit in this sandbox and are unrelated. 55 of the passing tests are the new `codex_accounts` suite.
 * `cargo clippy --tests`: no warnings in the new module. `cargo check --target x86_64-pc-windows-gnu --tests`: compiles
   (DPAPI, `ReplaceFileW`, process snapshot paths). `rustfmt` clean for the new module (the repository as a whole is not
   `cargo fmt --check` clean at baseline).
-* `bun run check`, `bun run build`: pass. `bun test`: 869 pass / 1 fail (`uiLocalization`, fails identically on base).
-  36 new TypeScript unit tests pass.
+* `bun run check`, `bun run build`: pass. `bun test`: 879 pass / 1 fail (`uiLocalization`, fails identically on base).
+  46 new TypeScript unit tests pass.
 * UI scripts: `test:ui:codex-accounts` (new), `api-provider-dialog`, `api-access-layout`, `browser-mock`,
   `windows-titlebar` pass. `accessibility`, `responsive`, `settings` fail identically on the base commit.
 * Measured on Linux (average of 20 switches, local disk): validate 0.03 ms, atomic write + verify ≈ 5 ms,
