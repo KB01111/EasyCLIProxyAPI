@@ -134,15 +134,50 @@ proxy routing-pool presets.
 
 ## 8. Implementation phases (and status)
 
-1. Architecture audit — done (this document).
-2. Domain model — identity, store, pinned pair.
-3. Credential management — vault, reconcile, atomic switch, journal, recovery.
-4. Native compatibility — store detection, process blocking, verification.
-5. Usage/quota integration — frontend reuses quota service; summary pushed to Rust.
-6. UI — Account Center page.
-7. Windows integration — tray section, optional hotkey, notifications.
-8. QA — unit/integration tests, clippy, fmt, build, UI smoke.
-9. Release prep — README/doc updates.
+| Phase | Status |
+| --- | --- |
+| 1 Architecture audit | Done (this document) |
+| 2 Domain model (identity, store, pinned pair) | Done, tested |
+| 3 Credential management (vault, reconcile, atomic switch, journal, recovery) | Done, tested |
+| 4 Native compatibility (store detection, process blocking, verification) | Done for Codex CLI / file store. **Desktop: unverified by design** |
+| 5 Usage/quota integration | Done: UI reuses `quotaService`, publishes numeric digests to Rust |
+| 6 UI (Account Center page) | Done; verified against the browser mock only |
+| 7 Windows integration (tray, optional shortcut, notifications) | Implemented; compiles for `x86_64-pc-windows-gnu`; **not run on Windows** |
+| 8 QA | See "Verification results" |
+| 9 Release prep | README section + this document. No Windows installer was built in the authoring environment |
+
+## 8a. Verification results (authoring environment: Linux, no Windows/Codex Desktop)
+
+* `cargo test`: 937 passed, 2 failed. The two failures
+  (`agents::backups::…::linked_configuration_and_backup_directories_are_rejected`,
+  `tests::agent_configuration::agent_probe_command_stops_at_timeout`) fail identically on the untouched
+  base commit in this sandbox and are unrelated. 52 of the passing tests are the new `codex_accounts` suite.
+* `cargo clippy --tests`: no warnings in the new module. `cargo check --target x86_64-pc-windows-gnu --tests`: compiles
+  (DPAPI, `ReplaceFileW`, process snapshot paths). `rustfmt` clean for the new module (the repository as a whole is not
+  `cargo fmt --check` clean at baseline).
+* `bun run check`, `bun run build`: pass. `bun test`: 869 pass / 1 fail (`uiLocalization`, fails identically on base).
+  36 new TypeScript unit tests pass.
+* UI scripts: `test:ui:codex-accounts` (new), `api-provider-dialog`, `api-access-layout`, `browser-mock`,
+  `windows-titlebar` pass. `accessibility`, `responsive`, `settings` fail identically on the base commit.
+* Measured on Linux (average of 20 switches, local disk): validate 0.03 ms, atomic write + verify ≈ 5 ms,
+  identity verify 0.15 ms, total ≈ 31 ms including journal and metadata fsyncs. Windows numbers (fsync, antivirus) will
+  differ and were not measured. UI-update latency is measured by the page itself and shown in the switch result.
+* An independent adversarial review of the Rust module was run; its confirmed findings were fixed (stale live copy,
+  timestamp poisoning, vault reset recapture, ID-token requirement, incomplete credentials, fail-closed process scan,
+  late process check, journal retention, cross-process vault lock, AltGr shortcuts) with regression tests.
+
+## 8b. Known limitations
+
+* **Codex Desktop switching is unverified** and always reported as such. The app never closes Codex, never touches
+  Desktop private stores, and tells the user to restart Desktop and confirm the account shown.
+* Only `cli_auth_credentials_store = file` (or unset) is switchable; `keyring`/`auto` are detected and refused.
+* Native Codex and the CPA core can share one refresh-token chain; whichever refreshes first may invalidate the other
+  copy. The newest generation wins on every sync; a rejected copy needs Reauthenticate.
+* Identity comes from unsigned JWT claims (equality, not authenticity).
+* On Windows, protection of `auth.json`/vault files relies on DPAPI plus the per-user profile ACL; no custom ACL is set.
+* Quota for credentials disabled for proxy routing is unavailable (existing core behaviour), so a pinned account that is
+  disabled for routing cannot produce a recommendation.
+* Existing `cpa-native-oauth.json` still stores full auth bodies in plaintext (pre-existing; not extended).
 
 ## 9. Test strategy
 
