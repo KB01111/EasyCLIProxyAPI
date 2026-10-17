@@ -231,55 +231,57 @@ export function ProviderPresetDialog({ onClose, onCreated }: ProviderPresetDialo
 
         {preset ? (
           <form className="provider-preset-form" onSubmit={submit}>
-            <div className="provider-dialog-basic-grid">
-              <label><span>{t('apiAccess.entries.name')}</span>
-                <input value={name} maxLength={80} onChange={(event) => setName(event.currentTarget.value)} />
-              </label>
-              <label><span>{t('apiAccess.field.baseUrl')}</span>
-                <input value={baseUrl} onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  changeConnection(() => setBaseUrl(value));
-                }} />
-              </label>
-            </div>
-
-            {preset.auth === 'modal-token' ? (
+            <fieldset className="provider-preset-fields" disabled={working === 'create'}>
               <div className="provider-dialog-basic-grid">
-                <label><span>{t('apiAccess.presets.field.tokenId')}</span>
-                  <input value={tokenId} autoComplete="off" spellCheck={false} onChange={(event) => {
+                <label><span>{t('apiAccess.entries.name')}</span>
+                  <input value={name} maxLength={80} onChange={(event) => setName(event.currentTarget.value)} />
+                </label>
+                <label><span>{t('apiAccess.field.baseUrl')}</span>
+                  <input value={baseUrl} onChange={(event) => {
                     const value = event.currentTarget.value;
-                    const split = splitModalProxyToken(value);
-                    changeConnection(() => {
-                      if (split) {
-                        setTokenId(split.tokenId);
-                        setTokenSecret(split.tokenSecret);
-                      } else {
-                        setTokenId(value);
-                      }
-                    });
+                    changeConnection(() => setBaseUrl(value));
                   }} />
                 </label>
+              </div>
+
+              {preset.auth === 'modal-token' ? (
+                <div className="provider-dialog-basic-grid">
+                  <label><span>{t('apiAccess.presets.field.tokenId')}</span>
+                    <input value={tokenId} autoComplete="off" spellCheck={false} onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      const split = splitModalProxyToken(value);
+                      changeConnection(() => {
+                        if (split) {
+                          setTokenId(split.tokenId);
+                          setTokenSecret(split.tokenSecret);
+                        } else {
+                          setTokenId(value);
+                        }
+                      });
+                    }} />
+                  </label>
+                  <div className="provider-dialog-secret">
+                    <label><span>{t('apiAccess.presets.field.tokenSecret')}</span>
+                      <input type={secretVisible ? 'text' : 'password'} value={secretInput} autoComplete="off" spellCheck={false} onChange={(event) => setSecret(event.currentTarget.value)} />
+                    </label>
+                    <button type="button" className="secondary-button compact-button" aria-pressed={secretVisible} onClick={() => setSecretVisible((value) => !value)}>
+                      {t(secretVisible ? 'apiAccess.entries.hideKey' : 'apiAccess.entries.showKey')}
+                    </button>
+                  </div>
+                </div>
+              ) : (
                 <div className="provider-dialog-secret">
-                  <label><span>{t('apiAccess.presets.field.tokenSecret')}</span>
-                    <input type={secretVisible ? 'text' : 'password'} value={secretInput} autoComplete="off" spellCheck={false} onChange={(event) => setSecret(event.currentTarget.value)} />
+                  <label><span>{t('apiAccess.field.key')}</span>
+                    <input type={secretVisible ? 'text' : 'password'} value={secretInput} autoComplete="off" spellCheck={false} placeholder="sk-..." onChange={(event) => setSecret(event.currentTarget.value)} />
                   </label>
                   <button type="button" className="secondary-button compact-button" aria-pressed={secretVisible} onClick={() => setSecretVisible((value) => !value)}>
                     {t(secretVisible ? 'apiAccess.entries.hideKey' : 'apiAccess.entries.showKey')}
                   </button>
                 </div>
-              </div>
-            ) : (
-              <div className="provider-dialog-secret">
-                <label><span>{t('apiAccess.field.key')}</span>
-                  <input type={secretVisible ? 'text' : 'password'} value={secretInput} autoComplete="off" spellCheck={false} placeholder="sk-..." onChange={(event) => setSecret(event.currentTarget.value)} />
-                </label>
-                <button type="button" className="secondary-button compact-button" aria-pressed={secretVisible} onClick={() => setSecretVisible((value) => !value)}>
-                  {t(secretVisible ? 'apiAccess.entries.hideKey' : 'apiAccess.entries.showKey')}
-                </button>
-              </div>
-            )}
+              )}
 
-            {preset.auth === 'modal-token' ? <p className="provider-preset-hint">{t('apiAccess.presets.modal.hint')}</p> : null}
+              {preset.auth === 'modal-token' ? <p className="provider-preset-hint">{t('apiAccess.presets.modal.hint')}</p> : null}
+            </fieldset>
             {preset.keyUrl ? <p className="provider-preset-hint">{t('apiAccess.presets.keyHint', { url: preset.keyUrl })}</p> : null}
             {routing ? <RoutingPreview routing={routing} /> : null}
             {error ? <p className="provider-preset-error" role="alert">{error}</p> : null}

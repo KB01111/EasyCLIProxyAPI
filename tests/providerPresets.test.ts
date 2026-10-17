@@ -148,6 +148,14 @@ describe('routeProviderPresetModels', () => {
     expect(routing.routes.openai).toEqual(['gpt-5.5']);
   });
 
+  it('skips a Command Code model that reports an empty endpoint list instead of guessing from its name', () => {
+    const routing = routeProviderPresetModels(presetById('command-code'), [
+      { name: 'claude-sonnet-5-5', supportedEndpoints: [] },
+    ]);
+    expect(routing.routes).toEqual({ openai: [], claude: [], codex: [] });
+    expect(routing.skipped).toEqual(['claude-sonnet-5-5']);
+  });
+
   it('drops blank and case-insensitive duplicate names and counts only routed models', () => {
     const routing = routeProviderPresetModels(presetById('openrouter'), names(['Model-A', 'model-a', '  ', 'Model-B']));
     expect(routing.routes.openai).toEqual(['Model-A', 'Model-B']);
@@ -295,14 +303,33 @@ describe('applyProviderPresetPlan', () => {
     expect(puts.filter(([section]) => section === 'openai-compatibility')).toHaveLength(2);
   });
 
+  it('restores a section whose write was applied even though its response failed', async () => {
+    const { state, store } = fakeStore({});
+    const lostResponse: ProviderGroupStore = {
+      get: store.get,
+      put: async (section, groups) => {
+        await store.put(section, groups);
+        if (section === 'claude-api-key') throw new Error('response lost');
+      },
+    };
+    await expect(applyProviderPresetPlan(planFor('OpenCode Go'), lostResponse)).rejects.toThrow('response lost');
+    expect(state['claude-api-key']).toEqual([cleanProviderGroup(existingClaude)]);
+    expect(state['openai-compatibility']).toEqual([cleanProviderGroup(existingOpenAi)]);
+  });
+
   it('reports a failed rollback together with the original error', async () => {
-    let writes = 0;
+    const puts: string[] = [];
+    let claudeFailed = false;
     const store: ProviderGroupStore = {
       get: async (section) => (section === 'openai-compatibility' ? [existingOpenAi] : []),
       put: async (section) => {
-        writes += 1;
-        if (section === 'claude-api-key') throw new Error('claude down');
-        if (writes > 1) throw new Error('rollback down');
+        puts.push(section);
+        if (section === 'claude-api-key' && !claudeFailed) {
+          claudeFailed = true;
+          throw new Error('claude down');
+        }
+        // Only restoring the first section fails.
+        if (section === 'openai-compatibility' && puts.length > 1) throw new Error('rollback down');
       },
     };
     const attempt = applyProviderPresetPlan(planFor('OpenCode Go'), store);
@@ -312,13 +339,15 @@ describe('applyProviderPresetPlan', () => {
 
 describe('discovery normalization', () => {
   it('keeps supported_endpoints from discovery payloads and omits them when absent', () => {
-    const [claude, chat] = modelsFromDiscoveredPayload({
+    const [claude, chat, silent] = modelsFromDiscoveredPayload({
       data: [
         { id: 'claude-sonnet-5-5', supported_endpoints: ['/messages', 42, '  '] },
         { id: 'deepseek/deepseek-v4-pro' },
+        { id: 'no-endpoints', supported_endpoints: [] },
       ],
     });
     expect(claude.supportedEndpoints).toEqual(['/messages']);
     expect(chat.supportedEndpoints).toBeUndefined();
+    expect(silent.supportedEndpoints).toEqual([]);
   });
 });

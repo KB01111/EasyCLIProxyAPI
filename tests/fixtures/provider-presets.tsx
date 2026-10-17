@@ -22,6 +22,8 @@ const fixture = window as typeof window & {
     sections: Record<string, Record<string, unknown>[]>;
     writes: { section: string; body: Record<string, unknown>[] }[];
     probes: { url: string; header: Record<string, string> | undefined }[];
+    hold?: boolean;
+    release?: () => void;
   };
 };
 fixture.presetFixture = { sections: {}, writes: [], probes: [] };
@@ -52,9 +54,18 @@ mockIPC((cmd, args: any) => {
   }
   if (request.method !== 'PUT') throw new Error(`Unexpected ${request.method} ${request.path}`);
   const section = sectionFromPath(request.path);
-  fixture.presetFixture.sections[section] = structuredClone(request.body);
-  fixture.presetFixture.writes.push({ section, body: structuredClone(request.body) });
-  return { status: 'ok' };
+  const commit = () => {
+    fixture.presetFixture.sections[section] = structuredClone(request.body);
+    fixture.presetFixture.writes.push({ section, body: structuredClone(request.body) });
+    return { status: 'ok' };
+  };
+  // A held write stays pending until the test releases it, so the in-flight state can be inspected.
+  if (fixture.presetFixture.hold) {
+    return new Promise((resolve) => {
+      fixture.presetFixture.release = () => resolve(commit());
+    });
+  }
+  return commit();
 });
 
 createRoot(document.getElementById('root')!).render(

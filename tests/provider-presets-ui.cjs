@@ -139,6 +139,28 @@ const widths = [1280, 640];
       await page.close();
     }
 
+    // While a create is in flight, every field is disabled, so the values cannot change or be re-submitted.
+    {
+      const page = await open('en', 1280);
+      await page.getByRole('button', { name: labels.en }).click();
+      await page.locator('.provider-preset-card', { hasText: 'OpenRouter' }).click();
+      await page.getByLabel('API Key').fill('or-test-key');
+      await submit(page);
+      await page.waitForSelector('.provider-preset-routing');
+      await page.evaluate(() => { window.presetFixture.hold = true; });
+      await submit(page);
+      await page.waitForFunction(() => typeof window.presetFixture.release === 'function');
+      assert.equal(await page.locator('.provider-preset-fields').evaluate((fields) => fields.disabled), true, 'fields disabled while creating');
+      assert.equal(await page.getByLabel('Service Name').isDisabled(), true);
+      assert.equal(await page.getByLabel('API Key').isDisabled(), true);
+      assert.equal(await page.getByRole('button', { name: 'Back' }).isDisabled(), true);
+      assert.equal((await fixtureState(page)).writes.length, 0, 'nothing is written until the held write is released');
+      await page.evaluate(() => window.presetFixture.release());
+      await page.waitForSelector('.provider-preset-dialog', { state: 'detached' });
+      assert.equal((await fixtureState(page)).writes.at(-1).body.at(-1).name, 'OpenRouter');
+      await page.close();
+    }
+
     // Chinese UI uses the translated chooser and form labels.
     {
       const page = await open('zh-CN', 1280);

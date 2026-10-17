@@ -62,8 +62,8 @@ const openCodeRoute = (anthropicModels: RegExp, excludeFreeTier: boolean) => (mo
 
 // Command Code reports the protocols each model accepts, so routing follows that list.
 const commandCodeRoute = (model: PresetModel): PresetRoute | null => {
-  const endpoints = model.supportedEndpoints ?? [];
-  if (endpoints.length === 0) return /^claude-/i.test(model.name) ? 'claude' : 'openai';
+  const endpoints = model.supportedEndpoints;
+  if (endpoints === undefined) return /^claude-/i.test(model.name) ? 'claude' : 'openai';
   if (endpoints.includes('/chat/completions')) return 'openai';
   if (endpoints.includes('/messages')) return 'claude';
   if (endpoints.includes('/responses')) return 'codex';
@@ -263,16 +263,17 @@ export async function applyProviderPresetPlan(
     }
   }
 
-  const written: PresetSection[] = [];
+  // A section is recorded before its PUT: a request that is applied but whose response is lost still needs restoring.
+  const attempted: PresetSection[] = [];
   try {
     for (const entry of plan.entries) {
+      attempted.push(entry.section);
       const existing = (current.get(entry.section) ?? []).map(cleanProviderGroup);
       await store.put(entry.section, [...existing, cleanProviderGroup(entry.group)]);
-      written.push(entry.section);
     }
   } catch (error) {
     const rollbackErrors: string[] = [];
-    for (const section of written.reverse()) {
+    for (const section of attempted.reverse()) {
       try {
         await store.put(section, (current.get(section) ?? []).map(cleanProviderGroup));
       } catch (rollbackError) {
