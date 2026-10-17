@@ -101,21 +101,21 @@ describe('routeProviderPresetModels', () => {
     const routing = routeProviderPresetModels(presetById('opencode-go'), names([
       'claude-haiku-5-5', 'minimax-m3', 'qwen3.8-max', 'qwen3.7-plus',
       'gpt-5.6-luna', 'grok-4.7', 'muse-spark-1.3-contributor',
-      'glm-5.3', 'kimi-k3', 'deepseek-v4-pro',
+      'glm-5.3', 'kimi-k3', 'deepseek-v4-pro', 'qwen3.6-plus',
       'gemini-4-argon-contributor',
     ]));
     expect(routing.routes.claude).toEqual(['claude-haiku-5-5', 'minimax-m3', 'qwen3.8-max', 'qwen3.7-plus']);
     expect(routing.routes.codex).toEqual(['gpt-5.6-luna', 'grok-4.7', 'muse-spark-1.3-contributor']);
-    expect(routing.routes.openai).toEqual(['glm-5.3', 'kimi-k3', 'deepseek-v4-pro']);
+    expect(routing.routes.openai).toEqual(['glm-5.3', 'kimi-k3', 'deepseek-v4-pro', 'qwen3.6-plus']);
     expect(routing.skipped).toEqual(['gemini-4-argon-contributor']);
   });
 
-  it('routes OpenCode Zen Claude models to the Anthropic route only', () => {
+  it('routes OpenCode Zen Claude and Qwen models by its endpoint table', () => {
     const routing = routeProviderPresetModels(presetById('opencode-zen'), names([
-      'claude-opus-5-5', 'minimax-m3', 'gpt-5.5', 'glm-5.2',
+      'claude-opus-5-5', 'minimax-m3', 'gpt-5.5', 'glm-5.2', 'qwen3.6-plus', 'qwen3.8-max', 'qwen3.8-flash',
     ]));
-    expect(routing.routes.claude).toEqual(['claude-opus-5-5']);
-    expect(routing.routes.openai).toEqual(['minimax-m3', 'glm-5.2']);
+    expect(routing.routes.claude).toEqual(['claude-opus-5-5', 'qwen3.6-plus', 'qwen3.8-flash']);
+    expect(routing.routes.openai).toEqual(['minimax-m3', 'glm-5.2', 'qwen3.8-max']);
     expect(routing.routes.codex).toEqual(['gpt-5.5']);
   });
 

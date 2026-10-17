@@ -43,6 +43,10 @@ mockIPC((cmd, args: any) => {
   if (cmd !== 'management_request') throw new Error(`Unexpected ${cmd}`);
   const request = args.request;
   if (request.path === '/requests/api-call') {
+    // Discovery is the outer POST that carries an inner GET, as fetchModels sends it.
+    if (request.method !== 'POST' || request.body.method !== 'GET') {
+      throw new Error(`Unexpected discovery call ${request.method} ${request.body.method}`);
+    }
     const url: string = request.body.url;
     fixture.presetFixture.probes.push({ url, header: request.body.header });
     const host = modelsByHost.find(([fragment]) => url.includes(fragment));

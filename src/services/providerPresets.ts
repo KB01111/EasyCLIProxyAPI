@@ -112,7 +112,7 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
     baseUrl: 'https://opencode.ai/zen/v1',
     keyUrl: 'https://opencode.ai/console',
     routes: PRESET_ROUTES,
-    routeModel: openCodeRoute(/^claude-/i, true),
+    routeModel: openCodeRoute(/^(?:claude-|qwen3\.[567]-|qwen3\.8-flash)/i, true),
   },
   {
     id: 'command-code',
