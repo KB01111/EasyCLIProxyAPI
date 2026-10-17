@@ -1,6 +1,7 @@
 import { easyModeZhCN } from '../easyMode';
 import { homeZhCN } from '../home';
 import { authFileListZhCN } from '../authFileList';
+import { codexAccountsZhCN } from '../codexAccounts';
 
 export const zhCN = {
   'app.nav.plugins': '插件',
@@ -25,6 +26,7 @@ export const zhCN = {
   'oauth.vertex.importing': '正在导入…',
   ...homeZhCN,
   ...authFileListZhCN,
+  ...codexAccountsZhCN,
   'apiAccess.entries.addKey': '添加 API Key',
   'apiAccess.entries.addProvider': '添加服务',
   'apiAccess.entries.editKey': '编辑 API Key',

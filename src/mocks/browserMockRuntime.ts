@@ -1,5 +1,6 @@
 import { applyTemplateChanges, readTemplatePath, sameTemplateValue, type TemplateConfigChange } from '../services/templateConfig';
 import { createPluginMock, type PluginWebviewMockState } from './pluginMock';
+import { createCodexAccountsMock, resolveCodexMockFlags } from './codexAccountsMock';
 import { createQuotaMock, createQuotaMockFiles } from './quotaMock';
 
 export type BrowserMockScenario = 'running' | 'stopped' | 'empty' | 'error';
@@ -961,6 +962,10 @@ export function createBrowserMockRuntime(
     state.coreConfig.apiKeys = [];
   }
   const pluginMock = createPluginMock(state, pluginPages, onPluginWebview);
+  const codexAccountsMock = createCodexAccountsMock(
+    state,
+    resolveCodexMockFlags(typeof window === 'undefined' ? '' : window.location.search),
+  );
   const emit = (event: string, payload: unknown) => emitEvent(event, clone(payload));
 
   const invoke = async (command: string, rawPayload?: unknown): Promise<unknown> => {
@@ -972,6 +977,8 @@ export function createBrowserMockRuntime(
 
     const pluginResponse = pluginMock.handle(command, payload);
     if (pluginResponse.handled) return pluginResponse.value;
+    const codexResponse = codexAccountsMock.handle(command, payload);
+    if (codexResponse.handled) return codexResponse.value;
 
     switch (command) {
       case 'plugin:app|version': return '0.2.97-mock';
