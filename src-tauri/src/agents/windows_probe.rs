@@ -777,7 +777,7 @@ pub(crate) fn find_windows_matching_process_ids(
         .collect()
 }
 
-fn find_windows_process_snapshot() -> Vec<(u32, PathBuf)> {
+pub(crate) fn find_windows_process_snapshot() -> Vec<(u32, PathBuf)> {
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
         TH32CS_SNAPPROCESS,

@@ -502,7 +502,6 @@ pub(crate) fn commit_config_with_mappings(
     )
 }
 
-#[cfg(test)]
 pub(crate) fn commit_config_with_writer(
     client: &str,
     paths: &[PathBuf],
