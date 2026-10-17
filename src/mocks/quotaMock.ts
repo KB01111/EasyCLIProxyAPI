@@ -67,8 +67,8 @@ export function createQuotaMock() {
       plan_type: 'pro', credits: { balance: '12.50', unlimited: false },
       rate_limit_reset_credits: { available_count: remaining },
       rate_limit: {
-        primary_window: { used_percent: auth.endsWith('-unknown-quota') ? null : used ? 0 : auth.endsWith('-exhausted') ? 100 : 28, reset_after_seconds: 7200, limit_window_seconds: 18000 },
-        secondary_window: { used_percent: used ? 0 : 42, reset_after_seconds: 345600, limit_window_seconds: 604800 },
+        primary_window: { used_percent: auth.endsWith('-unknown-quota') ? null : used ? 0 : auth.endsWith('-exhausted') ? 100 : auth.endsWith('-idle') ? 91 : 28, reset_after_seconds: 7200, limit_window_seconds: 18000 },
+        secondary_window: { used_percent: used ? 0 : auth.endsWith('-idle') ? 35 : 42, reset_after_seconds: 345600, limit_window_seconds: 604800 },
       },
     });
     if (path.endsWith('/api/oauth/profile')) return success({ account: { has_claude_pro: true }, organization: { uuid: '00000000-0000-4000-8000-000000000001' } });

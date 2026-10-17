@@ -1,4 +1,5 @@
 import { createTraditionalMessages } from './traditional';
+import { codexAccountsZhCN, codexAccountsZhTW } from './codexAccounts';
 import { jaOverrides } from './ja';
 import { en } from './locales/en';
 import { zhCN, type MessageKey } from './locales/zh-CN';
@@ -9,6 +10,7 @@ export type MessageVariables = Record<string, string | number>;
 
 export const zhTW: Record<MessageKey, string> = {
   ...createTraditionalMessages(zhCN),
+  ...codexAccountsZhTW(createTraditionalMessages(codexAccountsZhCN)),
   "app.theme.lightGroup": "淺色主題",
   "app.theme.darkGroup": "深色主題",
   'app.theme.triggerLabel': '外觀',

@@ -24,6 +24,7 @@ import {
   ServerCog,
   Settings,
   Sprout,
+  Users,
   X,
 } from 'lucide-react';
 import appLogo from './assets/logo.jpg';
@@ -36,6 +37,8 @@ import { VersionManagementPage } from './pages/VersionManagementPage';
 import { OAuthManagementPage } from './pages/ManagementPages';
 import { QuotaPage } from './pages/QuotaPage';
 import { AgentsPage } from './pages/AgentsPage';
+import { CodexAccountsPage } from './pages/CodexAccountsPage';
+import { CODEX_ACCOUNTS_EVENTS, CODEX_ACCOUNTS_PAGE_ID, listenCodexAccountsEvent } from './services/codexAccounts';
 import { EasyModePage } from './pages/EasyModePage';
 import { UsageRecordsPage } from './pages/UsageRecordsPage';
 import { PluginsPage } from './pages/PluginsPage';
@@ -96,6 +99,12 @@ const pages = [
     labelKey: 'app.nav.agents',
     icon: Bot,
     component: AgentsPage,
+  },
+  {
+    id: 'codex-accounts',
+    labelKey: 'app.nav.codexAccounts',
+    icon: Users,
+    component: CodexAccountsPage,
   },
   {
     id: 'usage-records',
@@ -307,6 +316,9 @@ function AppContent() {
     if (pageId !== active) requestAppNavigation(() => setActive(pageId));
     else if (isPluginRoute(pageId)) setPluginReload((value) => value + 1);
   }, [active, coreReady]);
+
+  // The tray's "Open Account Center" asks the webview to show the Codex Accounts page.
+  useEffect(() => listenCodexAccountsEvent(CODEX_ACCOUNTS_EVENTS.open, () => select(CODEX_ACCOUNTS_PAGE_ID)), [select]);
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {

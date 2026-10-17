@@ -777,7 +777,52 @@ pub(crate) fn find_windows_matching_process_ids(
         .collect()
 }
 
-fn find_windows_process_snapshot() -> Vec<(u32, PathBuf)> {
+/// Every running process as `(pid, image name, executable path if readable)`. Protected or
+/// elevated processes still appear (without a path) so callers cannot miss them.
+pub(crate) fn find_windows_process_entries() -> Option<Vec<(u32, String, Option<PathBuf>)>> {
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return None;
+    }
+    let mut entry = unsafe { std::mem::zeroed::<PROCESSENTRY32W>() };
+    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+    let mut processes = Vec::new();
+    let mut complete = false;
+    if unsafe { Process32FirstW(snapshot, &mut entry) } != 0 {
+        loop {
+            if entry.th32ProcessID != 0 {
+                let length = entry
+                    .szExeFile
+                    .iter()
+                    .position(|unit| *unit == 0)
+                    .unwrap_or(entry.szExeFile.len());
+                let name = String::from_utf16_lossy(&entry.szExeFile[..length]);
+                processes.push((
+                    entry.th32ProcessID,
+                    name,
+                    process_executable_path(entry.th32ProcessID),
+                ));
+            }
+            if unsafe { Process32NextW(snapshot, &mut entry) } == 0 {
+                // Only "no more files" is a normal end; anything else is a truncated scan.
+                complete = unsafe { windows_sys::Win32::Foundation::GetLastError() }
+                    == windows_sys::Win32::Foundation::ERROR_NO_MORE_FILES;
+                break;
+            }
+        }
+    }
+    unsafe {
+        windows_sys::Win32::Foundation::CloseHandle(snapshot);
+    }
+    complete.then_some(processes)
+}
+
+pub(crate) fn find_windows_process_snapshot() -> Vec<(u32, PathBuf)> {
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
         TH32CS_SNAPPROCESS,

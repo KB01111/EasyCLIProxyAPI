@@ -5,7 +5,7 @@ use super::{
     refresh_agent_config_status_cache, request_codex_model_catalog_refresh, validate_gui_config,
     write_core_config_if_changed, AgentClient, AgentConfigStatusCache, ConfigFilesChangedPayload,
     CoreConfigSettings, GuiConfigFile, GuiConfigState, CONFIG_FILES_CHANGED_EVENT,
-    CORE_CONFIG_FILE,
+    notify_codex_native_auth_changed, CORE_CONFIG_FILE,
 };
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
@@ -215,6 +215,13 @@ fn handle_configuration_file_changes(
     refresh_agents |= tracked_changes
         .iter()
         .any(|path| !is_gui_path(path) && !is_core_path(path));
+    if tracked_changes
+        .iter()
+        .any(|path| path.file_name().is_some_and(|name| name == "auth.json"))
+    {
+        // The live Codex login may have changed (external login/logout or a native token refresh).
+        notify_codex_native_auth_changed(app);
+    }
 
     if refresh_agents {
         if let Err(error) = refresh_agent_config_status_cache(app, gui_state.inner(), cache.inner())

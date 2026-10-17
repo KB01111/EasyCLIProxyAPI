@@ -4,6 +4,7 @@ mod agents;
 mod app_settings;
 mod app_update;
 mod claude_catalog;
+mod codex_accounts;
 mod codex_catalog;
 mod codex_sessions;
 mod configuration_watcher;
@@ -53,6 +54,7 @@ use provider_health::{
 use agents::*;
 use app_settings::*;
 use app_update::*;
+use codex_accounts::*;
 use core_config::*;
 use core_runtime::*;
 use flate2::read::GzDecoder;
@@ -2491,6 +2493,8 @@ fn main() {
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -2508,7 +2512,8 @@ fn main() {
         .manage(GuiConfigState::new(gui_config))
         .manage(plugin_webview::PluginWebviewState::default())
         .manage(MainWindowSizeState::new(initial_window_size))
-        .manage(AgentConfigStatusCache::default());
+        .manage(AgentConfigStatusCache::default())
+        .manage(CodexAccountsState::default());
 
     let app = app.on_window_event(|window, event| {
         if window.label() != "main" {
@@ -2612,6 +2617,7 @@ fn main() {
                 eprintln!("Failed to start configuration file watcher: {error}");
             }
 
+            initialize_codex_accounts(app.handle());
             network_proxy::start_monitor(app.handle().clone());
             start_codex_model_catalog_sync(app.handle().clone());
 
@@ -2706,6 +2712,18 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            codex_accounts_get_state,
+            codex_accounts_switch,
+            codex_accounts_toggle,
+            codex_accounts_rename,
+            codex_accounts_set_pinned,
+            codex_accounts_remove,
+            codex_accounts_adopt_live,
+            codex_accounts_update_settings,
+            codex_accounts_publish_quota,
+            codex_accounts_recommendation,
+            codex_accounts_ack_external_change,
+            codex_accounts_reset_vault,
             desktop_theme::get_linux_system_theme,
             desktop_theme::get_theme_selection,
             desktop_theme::save_theme_selection,

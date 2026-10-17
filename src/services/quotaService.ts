@@ -32,6 +32,10 @@ export type QuotaRow = {
   reset?: string;
   resetAtMs?: number;
   detail?: string;
+  /** Provider-reported window length (Codex `limit_window_seconds`); absent when not reported. */
+  windowSeconds?: number;
+  /** Codex only: `main` is the account's own rate limit; `extra` rows are code-review/add-on limits. */
+  scope?: 'main' | 'extra';
 };
 export type QuotaState = {
   status: QuotaStatus;
@@ -299,6 +303,8 @@ const codexWindowRows = (value: Record<string, unknown>): QuotaRow[] => {
         ?? (reached && resetAtMs !== undefined ? 0 : null),
       reset: codexResetLabel(raw),
       resetAtMs,
+      windowSeconds: duration !== null && duration > 0 ? duration : undefined,
+      scope: prefix ? 'extra' : 'main',
     };
   }).filter((row): row is QuotaRow => row !== null);
 };
@@ -405,6 +411,7 @@ export const quotaRowsFor = (provider: QuotaProvider, payload: unknown): QuotaRo
         detail: used !== null && limit !== null
           ? `${quotaText('quota.service.usedOf', { used: format(used), limit: format(limit) })} ${readString(individual, 'unit')}`.trim()
           : undefined,
+        scope: 'extra',
       });
     }
     return rows;

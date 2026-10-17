@@ -582,6 +582,8 @@ pub(crate) fn setup_windows_tray(app: &mut tauri::App<tauri::Wry>) -> tauri::Res
     )?;
     let separator_one = PredefinedMenuItem::separator(app)?;
     let separator_two = PredefinedMenuItem::separator(app)?;
+    let separator_three = PredefinedMenuItem::separator(app)?;
+    let codex_accounts_menu = crate::codex_accounts::tray_menu::create_submenu(app, &locale)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -591,6 +593,8 @@ pub(crate) fn setup_windows_tray(app: &mut tauri::App<tauri::Wry>) -> tauri::Res
             &toggle_core_item,
             &restart_core_item,
             &separator_two,
+            &codex_accounts_menu,
+            &separator_three,
             &quit,
         ],
     )?;
@@ -617,7 +621,9 @@ pub(crate) fn setup_windows_tray(app: &mut tauri::App<tauri::Wry>) -> tauri::Res
                 run_windows_tray_core_action(app_handle, WindowsTrayCoreAction::Restart)
             }
             WINDOWS_TRAY_QUIT_MENU_ID => app_handle.exit(0),
-            _ => {}
+            other => {
+                crate::codex_accounts::tray_menu::handle_menu_event(app_handle, other);
+            }
         })
         .on_tray_icon_event(move |tray, event| {
             if matches!(
@@ -632,6 +638,7 @@ pub(crate) fn setup_windows_tray(app: &mut tauri::App<tauri::Wry>) -> tauri::Res
         })
         .build(app)?;
 
+    let _ = app.manage(crate::codex_accounts::tray_menu::CodexTrayMenu(codex_accounts_menu));
     let _ = app.manage(WindowsTrayState {
         open_main_window,
         status_item,

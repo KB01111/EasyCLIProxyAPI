@@ -2,6 +2,7 @@ import type { MessageKey } from './zh-CN';
 import { easyModeEn } from '../easyMode';
 import { homeEn } from '../home';
 import { authFileListEn } from '../authFileList';
+import { codexAccountsEn } from '../codexAccounts';
 
 export const en: Record<MessageKey, string> = {
   'app.nav.plugins': 'Plugins',
@@ -26,6 +27,7 @@ export const en: Record<MessageKey, string> = {
   'oauth.vertex.importing': 'Importing…',
   ...homeEn,
   ...authFileListEn,
+  ...codexAccountsEn,
   'apiAccess.entries.addKey': 'Add API Key',
   'apiAccess.entries.addProvider': 'Add Service',
   'apiAccess.entries.editKey': 'Edit API Key',
