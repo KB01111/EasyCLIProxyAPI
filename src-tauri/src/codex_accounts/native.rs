@@ -28,10 +28,13 @@ pub(crate) fn detect_credential_store(codex_home: &Path) -> CredentialStoreStatu
     let configured = match content.as_deref() {
         None => None,
         Some(content) => match toml::from_str::<toml::Value>(content) {
-            Ok(value) => value
-                .get("cli_auth_credentials_store")
-                .and_then(toml::Value::as_str)
-                .map(|mode| mode.trim().to_ascii_lowercase()),
+            // A present-but-not-a-string value is an unknown mode, never the default.
+            Ok(value) => value.get("cli_auth_credentials_store").map(|setting| {
+                setting
+                    .as_str()
+                    .map(|mode| mode.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "?".into())
+            }),
             Err(_) => {
                 return CredentialStoreStatus {
                     mode: "unknown".into(),
@@ -100,20 +103,22 @@ fn classify_process(name: &str, path: Option<&str>) -> Option<RunningCodex> {
 }
 
 /// Processes that may hold Codex credentials in memory. Called on demand only (no polling).
-pub(crate) fn running_codex_processes() -> Vec<RunningCodex> {
+/// A failed scan is an error: "could not look" must never read as "nothing is running".
+pub(crate) fn running_codex_processes() -> Result<Vec<RunningCodex>, String> {
     let own = std::process::id();
     let mut found = Vec::new();
     #[cfg(windows)]
-    for (pid, name, path) in find_windows_process_entries() {
-        if let Some(mut process) =
-            classify_process(&name, path.as_deref().and_then(Path::to_str))
-        {
+    for (pid, name, path) in
+        find_windows_process_entries().ok_or("Unable to list running processes")?
+    {
+        if let Some(mut process) = classify_process(&name, path.as_deref().and_then(Path::to_str)) {
             process.pid = pid;
             found.push(process);
         }
     }
     #[cfg(target_os = "linux")]
-    if let Ok(entries) = fs::read_dir("/proc") {
+    {
+        let entries = fs::read_dir("/proc").map_err(|_| "Unable to list running processes")?;
         for entry in entries.flatten() {
             let Some(pid) = entry
                 .file_name()
@@ -135,7 +140,13 @@ pub(crate) fn running_codex_processes() -> Vec<RunningCodex> {
         }
     }
     #[cfg(target_os = "macos")]
-    if let Ok(output) = Command::new("ps").args(["-axo", "pid=,comm="]).output() {
+    {
+        let output = Command::new("ps")
+            .args(["-axo", "pid=,comm="])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .ok_or("Unable to list running processes")?;
         for line in String::from_utf8_lossy(&output.stdout).lines() {
             let mut parts = line.trim().splitn(2, ' ');
             let (Some(pid), Some(command)) = (parts.next(), parts.next()) else {
@@ -154,9 +165,11 @@ pub(crate) fn running_codex_processes() -> Vec<RunningCodex> {
             }
         }
     }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    return Err("Process detection is not supported on this platform".into());
     found.retain(|process| process.pid != own);
     found.sort_by_key(|process| process.pid);
-    found
+    Ok(found)
 }
 
 /// Write-ahead record of an in-flight credential transaction, sealed in the vault format.
@@ -274,6 +287,8 @@ mod tests {
             ),
             ("model = \"x\"\n", "file", true),
             ("not = [valid", "unknown", false),
+            ("cli_auth_credentials_store = 3\n", "unknown", false),
+            ("cli_auth_credentials_store = true\n", "unknown", false),
         ] {
             fs::write(root.join("config.toml"), content).unwrap();
             let status = detect_credential_store(&root);

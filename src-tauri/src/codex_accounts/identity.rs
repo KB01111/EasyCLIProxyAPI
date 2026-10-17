@@ -139,9 +139,16 @@ impl CodexCredential {
         let access_claims = jwt_claims(&self.tokens.access_token);
         let id_auth = id_claims.as_ref().and_then(auth_claims);
         let access_auth = access_claims.as_ref().and_then(auth_claims);
-        let claimed_account = id_auth
-            .and_then(|auth| claim_string(auth, "chatgpt_account_id"))
-            .or_else(|| access_auth.and_then(|auth| claim_string(auth, "chatgpt_account_id")));
+        let id_account = id_auth.and_then(|auth| claim_string(auth, "chatgpt_account_id"));
+        let access_account = access_auth.and_then(|auth| claim_string(auth, "chatgpt_account_id"));
+        if let (Some(from_id), Some(from_access)) = (&id_account, &access_account) {
+            if from_id != from_access {
+                return Err(
+                    "Credential ID token and access token belong to different accounts".into(),
+                );
+            }
+        }
+        let claimed_account = id_account.or(access_account);
         let stored_account =
             Some(self.tokens.account_id.trim().to_string()).filter(|value| !value.is_empty());
         let account_id = match (stored_account, claimed_account) {

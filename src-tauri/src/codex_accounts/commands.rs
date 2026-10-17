@@ -96,21 +96,21 @@ impl CodexAccountsState {
         self.busy.load(Ordering::Acquire)
     }
 
-    fn processes(&self, force: bool) -> Vec<RunningCodex> {
+    fn processes(&self, force: bool) -> Result<Vec<RunningCodex>, String> {
         if !force {
             if let Ok(cache) = self.processes.lock() {
                 if let Some((at, found)) = cache.as_ref() {
                     if at.elapsed() < Duration::from_secs(PROCESS_CACHE_SECONDS) {
-                        return found.clone();
+                        return Ok(found.clone());
                     }
                 }
             }
         }
-        let found = running_codex_processes();
+        let found = running_codex_processes()?;
         if let Ok(mut cache) = self.processes.lock() {
             *cache = Some((Instant::now(), found.clone()));
         }
-        found
+        Ok(found)
     }
 }
 
@@ -140,7 +140,11 @@ fn refresh_snapshot(
     let state = app.state::<CodexAccountsState>();
     let engine = state.engine()?;
     let paths = resolve_paths(app)?;
-    let running = include_processes.then(|| state.processes(true));
+    let running = if include_processes {
+        state.processes(true).ok()
+    } else {
+        None
+    };
     let snapshot = engine.state(&StateContext {
         cpa_dir: &paths.cpa_dir,
         codex_home: &paths.codex_home,
@@ -218,7 +222,7 @@ pub(crate) fn perform_codex_account_switch(
         let outcome = engine.switch(
             &SwitchEnv {
                 codex_home: &paths.codex_home,
-                running: state.processes(true),
+                process_scan: &|| state.processes(true),
                 now: unix_now(),
             },
             &key,

@@ -192,7 +192,7 @@ impl Fixture {
             .switch(
                 &SwitchEnv {
                     codex_home: &self.codex,
-                    running,
+                    process_scan: &|| Ok(running.clone()),
                     now: NOW,
                 },
                 key,
@@ -303,7 +303,7 @@ fn pinned_pair_persists_across_restart_and_third_account_stays_available() {
             .switch(
                 &SwitchEnv {
                     codex_home: &fixture.codex,
-                    running: vec![],
+                    process_scan: &|| Ok(Vec::new()),
                     now: NOW
                 },
                 &keys[2]
@@ -732,7 +732,7 @@ fn write_failures_roll_back_and_leave_no_journal() {
     let before = fs::read(fixture.codex.join("auth.json")).unwrap();
     let env = SwitchEnv {
         codex_home: &fixture.codex,
-        running: vec![],
+        process_scan: &|| Ok(Vec::new()),
         now: NOW,
     };
     let mut calls = 0;
@@ -763,7 +763,7 @@ fn a_write_that_produces_the_wrong_identity_is_rejected() {
     let before = fs::read(fixture.codex.join("auth.json")).unwrap();
     let env = SwitchEnv {
         codex_home: &fixture.codex,
-        running: vec![],
+        process_scan: &|| Ok(Vec::new()),
         now: NOW,
     };
     let wrong = render_native_auth(None, &fresh(&RESERVE)).unwrap();
@@ -952,7 +952,7 @@ fn credentials_are_encrypted_at_rest_and_tamper_evident() {
     let error = fixture.reopen().switch(
         &SwitchEnv {
             codex_home: &fixture.codex,
-            running: vec![],
+            process_scan: &|| Ok(Vec::new()),
             now: NOW,
         },
         &keys[0],
@@ -1069,7 +1069,10 @@ fn a_credential_removed_from_the_proxy_is_reported_but_stays_switchable() {
     let snapshot = fixture.state();
     let work = snapshot.accounts.iter().find(|a| a.key == keys[1]).unwrap();
     assert!(!work.connected);
-    assert_eq!((work.cpa_copy, work.proxy_disabled), (CpaCopy::Missing, None));
+    assert_eq!(
+        (work.cpa_copy, work.proxy_disabled),
+        (CpaCopy::Missing, None)
+    );
     // The saved native session survives, so quick switching keeps working without the proxy copy.
     assert_eq!(fixture.switch(&keys[1]).status, "switched");
     assert_eq!(fixture.live_key(), keys[1]);
@@ -1084,9 +1087,16 @@ fn switch_latency_is_measured_per_stage_and_stays_small() {
         let outcome = fixture.switch(&keys[(round + 1) % 2]);
         let timings = outcome.timings.expect("switched outcomes carry timings");
         assert!(timings.validate_ms >= 0.0 && timings.write_ms > 0.0 && timings.verify_ms >= 0.0);
-        totals.push((timings.validate_ms, timings.write_ms, timings.verify_ms, timings.total_ms));
+        totals.push((
+            timings.validate_ms,
+            timings.write_ms,
+            timings.verify_ms,
+            timings.total_ms,
+        ));
     }
-    let average = |select: fn(&(f64, f64, f64, f64)) -> f64| totals.iter().map(select).sum::<f64>() / totals.len() as f64;
+    let average = |select: fn(&(f64, f64, f64, f64)) -> f64| {
+        totals.iter().map(select).sum::<f64>() / totals.len() as f64
+    };
     println!(
         "switch latency (avg of {}): validate {:.2} ms, atomic write+verify {:.2} ms, identity verify {:.2} ms, total {:.2} ms",
         totals.len(),
@@ -1095,5 +1105,119 @@ fn switch_latency_is_measured_per_stage_and_stays_small() {
         average(|t| t.2),
         average(|t| t.3)
     );
-    assert!(average(|t| t.3) < 500.0, "a local switch should be far below half a second");
+    assert!(
+        average(|t| t.3) < 500.0,
+        "a local switch should be far below half a second"
+    );
+}
+
+#[test]
+fn a_failed_process_scan_blocks_the_switch_instead_of_assuming_codex_is_closed() {
+    let (fixture, keys) = Fixture::with_three_accounts("scan-failure");
+    fixture.write_live(&fresh(&PERSONAL));
+    let before = fs::read(fixture.codex.join("auth.json")).unwrap();
+    let outcome = fixture
+        .engine
+        .switch(
+            &SwitchEnv {
+                codex_home: &fixture.codex,
+                process_scan: &|| Err("Unable to list running processes".into()),
+                now: NOW,
+            },
+            &keys[1],
+        )
+        .unwrap();
+    assert_eq!(
+        (outcome.status, outcome.code),
+        ("blocked", Some("process_scan_failed"))
+    );
+    assert_eq!(fs::read(fixture.codex.join("auth.json")).unwrap(), before);
+}
+
+#[test]
+fn the_process_check_runs_inside_the_switch_right_before_writing() {
+    let (fixture, keys) = Fixture::with_three_accounts("late-process");
+    fixture.write_live(&fresh(&PERSONAL));
+    let calls = std::cell::Cell::new(0);
+    let outcome = fixture
+        .engine
+        .switch(
+            &SwitchEnv {
+                codex_home: &fixture.codex,
+                process_scan: &|| {
+                    calls.set(calls.get() + 1);
+                    Ok(busy("codex.exe"))
+                },
+                now: NOW,
+            },
+            &keys[1],
+        )
+        .unwrap();
+    assert_eq!(outcome.code, Some("codex_running"));
+    assert_eq!(calls.get(), 1);
+    assert_eq!(fixture.live_key(), keys[0]);
+}
+
+#[test]
+fn id_token_and_access_token_must_name_the_same_account() {
+    let mut mixed = fresh(&PERSONAL);
+    mixed.tokens.access_token = fresh(&WORK).tokens.access_token;
+    assert!(mixed.identity().unwrap_err().contains("different accounts"));
+}
+
+#[test]
+fn many_logins_sharing_one_long_email_get_unique_bounded_aliases() {
+    let fixture = Fixture::new("aliases");
+    let logins = (0..14)
+        .map(|index| {
+            let account: &'static str =
+                Box::leak(format!("acct-bulk-{index:04}-xx").into_boxed_str());
+            Login {
+                account,
+                user: account,
+                email: "a-very-long-address-that-fills-the-limit@example.test",
+                plan: "plus",
+            }
+        })
+        .collect::<Vec<_>>();
+    for (index, login) in logins.iter().enumerate() {
+        fixture.write_cpa(&format!("bulk-{index}.json"), &fresh(login), false);
+    }
+    let snapshot = fixture.state();
+    assert_eq!(snapshot.accounts.len(), 14);
+    let aliases = snapshot
+        .accounts
+        .iter()
+        .map(|a| a.alias.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    assert_eq!(aliases.len(), 14);
+    assert!(snapshot
+        .accounts
+        .iter()
+        .all(|a| a.alias.chars().count() <= 40));
+}
+
+#[test]
+fn credential_store_setting_of_the_wrong_type_is_not_treated_as_the_default() {
+    let fixture = Fixture::new("store-type");
+    for content in [
+        "cli_auth_credentials_store = 1\n",
+        "cli_auth_credentials_store = [\"file\"]\n",
+    ] {
+        fs::write(fixture.codex.join("config.toml"), content).unwrap();
+        assert!(
+            !super::native::detect_credential_store(&fixture.codex).supported,
+            "{content}"
+        );
+    }
+}
+
+#[test]
+fn removal_writes_metadata_before_credentials() {
+    let (fixture, keys) = Fixture::with_three_accounts("remove-order");
+    fixture.engine.remove(&keys[2]).unwrap();
+    fs::remove_file(fixture.cpa.join("codex-reserve.json")).unwrap();
+    let snapshot = fixture.state();
+    assert_eq!(snapshot.accounts.len(), 2);
+    assert!(snapshot.accounts.iter().all(|a| a.key != keys[2]));
 }

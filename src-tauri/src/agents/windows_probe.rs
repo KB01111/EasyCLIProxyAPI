@@ -779,7 +779,7 @@ pub(crate) fn find_windows_matching_process_ids(
 
 /// Every running process as `(pid, image name, executable path if readable)`. Protected or
 /// elevated processes still appear (without a path) so callers cannot miss them.
-pub(crate) fn find_windows_process_entries() -> Vec<(u32, String, Option<PathBuf>)> {
+pub(crate) fn find_windows_process_entries() -> Option<Vec<(u32, String, Option<PathBuf>)>> {
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
         TH32CS_SNAPPROCESS,
@@ -787,7 +787,7 @@ pub(crate) fn find_windows_process_entries() -> Vec<(u32, String, Option<PathBuf
 
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
-        return Vec::new();
+        return None;
     }
     let mut entry = unsafe { std::mem::zeroed::<PROCESSENTRY32W>() };
     entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
@@ -815,7 +815,7 @@ pub(crate) fn find_windows_process_entries() -> Vec<(u32, String, Option<PathBuf
     unsafe {
         windows_sys::Win32::Foundation::CloseHandle(snapshot);
     }
-    processes
+    Some(processes)
 }
 
 pub(crate) fn find_windows_process_snapshot() -> Vec<(u32, PathBuf)> {

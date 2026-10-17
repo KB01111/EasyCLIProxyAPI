@@ -83,14 +83,23 @@ fn default_alias(store: &StoreData, identity: &CodexIdentity, file_name: Option<
         })
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "Codex account".into());
-    let base = base.chars().take(36).collect::<String>();
+    let base = base.chars().take(32).collect::<String>();
     let mut candidate = base.clone();
-    let mut counter = 2;
-    while store.validate_alias("", &candidate).is_err() {
+    // Suffixes keep the alias within the length limit; the search is bounded so a sync can never hang.
+    for counter in 2..1000 {
+        if store.validate_alias("", &candidate).is_ok() {
+            return candidate;
+        }
         candidate = format!("{base} ({counter})");
-        counter += 1;
     }
-    candidate
+    format!(
+        "Codex account {}",
+        identity
+            .key
+            .trim_start_matches("cx_")
+            .get(..8)
+            .unwrap_or("x")
+    )
 }
 
 fn record_from(
@@ -241,8 +250,16 @@ pub(crate) struct StateContext<'a> {
 
 pub(crate) struct SwitchEnv<'a> {
     pub(crate) codex_home: &'a Path,
-    pub(crate) running: Vec<RunningCodex>,
+    /// Evaluated inside the locks, immediately before the credentials are written, so a Codex that
+    /// started while the switch waited is still seen. An `Err` (scan failed) blocks the switch.
+    pub(crate) process_scan: &'a dyn Fn() -> Result<Vec<RunningCodex>, String>,
     pub(crate) now: i64,
+}
+
+/// Releases both locks on drop (closing the file drops the advisory lock).
+struct EngineGuard<'a> {
+    _mutex: std::sync::MutexGuard<'a, ()>,
+    _file: File,
 }
 
 pub(crate) struct AccountEngine {
@@ -308,10 +325,25 @@ impl AccountEngine {
         })
     }
 
-    fn lock(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
-        self.guard
+    /// In-process mutex plus an advisory file lock, so two app copies sharing the per-user vault
+    /// cannot interleave load-modify-save cycles and drop each other's updates.
+    fn lock(&self) -> Result<EngineGuard<'_>, String> {
+        let mutex = self
+            .guard
             .lock()
-            .map_err(|_| "Codex account state lock is poisoned".to_string())
+            .map_err(|_| "Codex account state lock is poisoned".to_string())?;
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(self.directory.join("vault.lock"))
+            .map_err(|_| "Unable to open the Codex account lock file".to_string())?;
+        file.lock()
+            .map_err(|_| "Unable to lock the Codex account vault".to_string())?;
+        Ok(EngineGuard {
+            _mutex: mutex,
+            _file: file,
+        })
     }
 
     fn load(&self) -> Result<(StoreData, VaultData), String> {
@@ -629,7 +661,10 @@ impl AccountEngine {
             store.active_native = None;
         }
         vault.entries.remove(key);
-        self.persist(Some(&store), Some(&vault))
+        // Metadata first: a failure between the two writes leaves an unreferenced (harmless) vault
+        // entry instead of an account whose credentials are gone.
+        save_store(&self.directory, &store)?;
+        self.vault.save(&vault)
     }
 
     // ----- Adopt the live login --------------------------------------------------------------
@@ -693,9 +728,8 @@ impl AccountEngine {
             .map_err(|_| "Agent configuration file lock is poisoned".to_string())?;
         let _guard = self.lock()?;
         let (mut store, mut vault) = self.load()?;
-        let running = env.running.clone();
         let block = |code: &'static str, message: &str, from: Option<String>| {
-            Ok(blocked(code, message, from, target, running.clone()))
+            Ok(blocked(code, message, from, target, Vec::new()))
         };
 
         let Some(record) = store.account(target).cloned() else {
@@ -765,18 +799,9 @@ impl AccountEngine {
                 to: target.to_string(),
                 restart_required: false,
                 desktop: "unverified",
-                running: env.running.clone(),
+                running: Vec::new(),
                 timings: None,
             });
-        }
-
-        // Block while Codex may hold (and later rewrite) credentials in memory.
-        if !env.running.is_empty() {
-            return block(
-                "codex_running",
-                "Codex is running. Close Codex (CLI sessions and the desktop app), then switch. Running sessions would keep the previous account and may overwrite the new credentials",
-                from_key,
-            );
         }
 
         // Validate the target: stored identity must still match, and it must be usable.
@@ -828,6 +853,28 @@ impl AccountEngine {
             (auth_path.clone(), Some(after_auth)),
             (state_path.clone(), after_state),
         ];
+
+        // Block while Codex may hold (and later rewrite) credentials in memory. Checked last, right
+        // before the first write, and fail closed when the scan itself cannot be completed.
+        match (env.process_scan)() {
+            Err(message) => {
+                return block(
+                    "process_scan_failed",
+                    &format!("{message}; cannot confirm Codex is closed, so the account was not switched"),
+                    from_key,
+                );
+            }
+            Ok(running) if !running.is_empty() => {
+                return Ok(blocked(
+                    "codex_running",
+                    "Codex is running. Close Codex (CLI sessions and the desktop app), then switch. Running sessions would keep the previous account and may overwrite the new credentials",
+                    from_key,
+                    target,
+                    running,
+                ));
+            }
+            Ok(_) => {}
+        }
 
         // Write-ahead journal (sealed) so a crash at any point is recoverable.
         let journal = SwitchJournal {
@@ -907,12 +954,16 @@ impl AccountEngine {
         if let Some(record) = store.account_mut(target) {
             record.last_activated_at = Some(env.now);
         }
-        let persisted = save_store(&self.directory, &store);
+        // Keep the journal if the metadata cannot be saved: startup recovery sees every file already
+        // switched and completes the bookkeeping instead of losing it.
+        save_store(&self.directory, &store).map_err(|_| {
+            "Codex was switched, but the account list could not be updated; it will be reconciled on next start"
+                .to_string()
+        })?;
         let _ = fs::remove_file(&journal_path);
         if let Ok(mut external) = self.external.lock() {
             *external = None;
         }
-        persisted?;
 
         Ok(SwitchOutcome {
             status: "switched",
