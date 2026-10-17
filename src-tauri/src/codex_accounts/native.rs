@@ -86,7 +86,8 @@ fn classify_process(name: &str, path: Option<&str>) -> Option<RunningCodex> {
     match stem {
         "codex" if in_desktop_install => Some("desktop"),
         "codex" => Some("cli"),
-        "chatgpt" if in_desktop_install => Some("desktop"),
+        // Without a readable path (elevated process) stay conservative and treat it as Codex.
+        "chatgpt" if in_desktop_install || path.is_none() => Some("desktop"),
         // `codex-*` helper binaries (app-server, exec) shipped with the CLI.
         other if other.starts_with("codex-") => Some("cli"),
         _ => None,
@@ -103,12 +104,10 @@ pub(crate) fn running_codex_processes() -> Vec<RunningCodex> {
     let own = std::process::id();
     let mut found = Vec::new();
     #[cfg(windows)]
-    for (pid, path) in find_windows_process_snapshot() {
-        let name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default();
-        if let Some(mut process) = classify_process(name, path.to_str()) {
+    for (pid, name, path) in find_windows_process_entries() {
+        if let Some(mut process) =
+            classify_process(&name, path.as_deref().and_then(Path::to_str))
+        {
             process.pid = pid;
             found.push(process);
         }
