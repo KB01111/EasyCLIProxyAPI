@@ -262,7 +262,7 @@ const path = require('node:path');
         }));
       }
       assert.match(order[0].text, /Toggle A/, 'Tab moves from Refresh to the quick-switch controls');
-      assert.match(order.map(item => item.text).join('|'), /Switch to Work\|Switch to Home/, 'featured switch buttons are reachable in order');
+      assert.match(order.map(item => item.text).join('|'), /Toggle A[^|]*\|Switch to Home\|Add account/, 'quick-switch controls come before the list, in order (the active account switch is disabled and skipped)');
       const unnamed = await page.evaluate(() => [...document.querySelectorAll('[data-testid=codex-accounts-page] button, [data-testid=codex-accounts-page] input')]
         .filter(el => !(el.getAttribute('aria-label') || el.textContent.trim() || el.labels?.length || el.getAttribute('aria-labelledby'))).length);
       assert.equal(unnamed, 0, 'every control has an accessible name');
