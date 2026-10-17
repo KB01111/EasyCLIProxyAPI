@@ -148,6 +148,10 @@ fn refresh_snapshot(
     } else {
         None
     };
+    // Complete an interrupted switch before anything reads or changes credentials.
+    if let Err(error) = engine.recover(unix_now()) {
+        eprintln!("Codex account recovery failed: {error}");
+    }
     let ticket = state.snapshot_ticket.fetch_add(1, Ordering::AcqRel);
     let snapshot = engine.state(&StateContext {
         cpa_dir: &paths.cpa_dir,
@@ -186,6 +190,15 @@ fn notify(app: &tauri::AppHandle, title: &str, body: &str) {
     }
 }
 
+/// Clears the busy flag on every exit path, including panics.
+struct BusyGuard<'a>(&'a AtomicBool);
+
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 pub(crate) enum SwitchTarget {
     Account(String),
     Toggle,
@@ -205,6 +218,7 @@ pub(crate) fn perform_codex_account_switch(
         return Err("An account switch is already in progress".into());
     }
     refresh_tray(app);
+    let _busy = BusyGuard(&state.busy);
     let result = (|| {
         let engine = state.engine()?;
         let paths = resolve_paths(app)?;
@@ -235,7 +249,7 @@ pub(crate) fn perform_codex_account_switch(
         )?;
         Ok(outcome)
     })();
-    state.busy.store(false, Ordering::Release);
+    drop(_busy);
     match &result {
         Ok(outcome) => {
             state.set_message(Some(outcome.message.clone()));

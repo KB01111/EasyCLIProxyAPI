@@ -1236,3 +1236,174 @@ fn duplicate_files_with_equally_fresh_but_different_tokens_are_flagged_as_ambigu
         .iter()
         .any(|issue| issue.contains("different tokens of equal age")));
 }
+
+// ---- Regressions from the adversarial review ---------------------------------------------
+
+#[test]
+fn switching_to_the_active_account_refreshes_a_live_copy_that_another_writer_superseded() {
+    let (fixture, keys) = Fixture::with_three_accounts("stale-live");
+    fixture.write_live(&fresh(&PERSONAL));
+    assert_eq!(
+        fixture.state().active_native.as_deref(),
+        Some(keys[0].as_str())
+    );
+    // The proxy core rotates the account's tokens; the vault adopts them, Codex's copy is now old.
+    let rotated = credential(&PERSONAL, NOW - 30, 3600 * 10, true);
+    fixture.write_cpa("codex-personal.json", &rotated, false);
+    fixture.state();
+    let outcome = fixture.switch(&keys[0]);
+    assert_eq!(outcome.status, "switched");
+    assert!(outcome.message.contains("Refreshed"));
+    match fixture.live() {
+        NativeAuth::OAuth(live) => assert_eq!(live.tokens, rotated.tokens),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(fixture.switch(&keys[0]).status, "unchanged", "now in sync");
+}
+
+#[test]
+fn far_future_timestamps_cannot_poison_the_vault() {
+    let (fixture, keys) = Fixture::with_three_accounts("poison");
+    let mut poison = fresh(&PERSONAL);
+    poison.last_refresh = Some("2999-01-01T00:00:00Z".into());
+    poison.tokens.refresh_token = "POISON".into();
+    fixture.write_cpa("codex-personal.json", &poison, false);
+    fixture.state();
+    let genuine = credential(&PERSONAL, NOW - 10, 3600 * 10, true);
+    fixture.write_cpa("codex-personal.json", &genuine, false);
+    let snapshot = fixture.state();
+    assert_eq!(
+        snapshot
+            .accounts
+            .iter()
+            .find(|a| a.key == keys[0])
+            .unwrap()
+            .cpa_copy,
+        CpaCopy::Same
+    );
+    assert_eq!(fixture.switch(&keys[0]).status, "switched");
+    match fixture.live() {
+        NativeAuth::OAuth(live) => assert_eq!(live.tokens, genuine.tokens),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_newer_copy_that_lost_token_parts_does_not_downgrade_the_vault() {
+    let (fixture, keys) = Fixture::with_three_accounts("downgrade");
+    let mut stripped = credential(&WORK, NOW - 5, 3600 * 10, false);
+    stripped.tokens.id_token = fresh(&WORK).tokens.id_token;
+    fixture.write_cpa("codex-work.json", &stripped, false);
+    let snapshot = fixture.state();
+    assert_eq!(
+        snapshot
+            .accounts
+            .iter()
+            .find(|a| a.key == keys[1])
+            .unwrap()
+            .cpa_copy,
+        CpaCopy::VaultNewer
+    );
+    assert_eq!(fixture.switch(&keys[1]).status, "switched");
+    match fixture.live() {
+        NativeAuth::OAuth(live) => assert!(!live.tokens.refresh_token.is_empty()),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_login_without_an_id_token_is_refused_instead_of_splitting_into_two_accounts() {
+    let mut without = fresh(&PERSONAL);
+    without.tokens.id_token = String::new();
+    assert!(without.identity().unwrap_err().contains("ID token"));
+    let fixture = Fixture::new("no-id-token");
+    fixture.write_cpa("codex-noid.json", &without, false);
+    let snapshot = fixture.state();
+    assert!(snapshot.accounts.is_empty());
+    assert!(snapshot
+        .issues
+        .iter()
+        .any(|issue| issue.contains("codex-noid.json")));
+}
+
+#[test]
+fn after_a_vault_reset_the_live_login_is_recaptured_not_stranded() {
+    let fixture = Fixture::new("vault-reset");
+    fixture.write_cpa("codex-personal.json", &fresh(&PERSONAL), false);
+    let personal = fixture.state().accounts[0].key.clone();
+    // An adopted (CPA-less) login: reserve is live and managed only through the Account Center.
+    fixture.write_live(&fresh(&RESERVE));
+    let reserve = fixture
+        .engine
+        .adopt_live(&fixture.codex, "Reserve", NOW)
+        .unwrap();
+    fixture.engine.quarantine_vault().unwrap();
+    let snapshot = fixture.state();
+    assert_eq!(snapshot.native.live, "managed");
+    assert_eq!(snapshot.active_native.as_deref(), Some(reserve.as_str()));
+    assert_eq!(fixture.switch(&personal).status, "switched");
+    assert_eq!(
+        fixture.switch(&reserve).status,
+        "switched",
+        "the live session survived the reset"
+    );
+}
+
+#[test]
+fn incomplete_saved_credentials_are_refused() {
+    let fixture = Fixture::new("incomplete");
+    let mut partial = fresh(&WORK);
+    partial.tokens.refresh_token = String::new();
+    fixture.write_cpa("codex-work.json", &partial, false);
+    fixture.write_cpa("codex-personal.json", &fresh(&PERSONAL), false);
+    let snapshot = fixture.state();
+    let work = key_for(&snapshot, &WORK);
+    fixture.write_live(&fresh(&PERSONAL));
+    let outcome = fixture.switch(&work);
+    assert_eq!(
+        (outcome.status, outcome.code),
+        ("blocked", Some("target_incomplete"))
+    );
+}
+
+#[test]
+fn a_half_written_auth_file_does_not_register_as_a_logout() {
+    let (fixture, keys) = Fixture::with_three_accounts("half-write");
+    fixture.write_live(&fresh(&PERSONAL));
+    assert_eq!(
+        fixture.state().active_native.as_deref(),
+        Some(keys[0].as_str())
+    );
+    let good = fs::read(fixture.codex.join("auth.json")).unwrap();
+    fs::write(fixture.codex.join("auth.json"), &good[..good.len() / 2]).unwrap();
+    let snapshot = fixture.state();
+    assert_eq!(snapshot.native.live, "error");
+    assert!(snapshot.external_change.is_none());
+    fs::write(fixture.codex.join("auth.json"), &good).unwrap();
+    let snapshot = fixture.state();
+    assert_eq!(snapshot.active_native.as_deref(), Some(keys[0].as_str()));
+    assert!(
+        snapshot.external_change.is_none(),
+        "no phantom change after the write completes"
+    );
+}
+
+#[test]
+fn a_pending_journal_blocks_new_switches_until_recovered() {
+    let (fixture, keys) = Fixture::with_three_accounts("pending-journal");
+    fixture.write_live(&fresh(&PERSONAL));
+    fixture.engine.write_journal_for_test(JOURNAL_LABEL, b"{}");
+    let outcome = fixture.switch(&keys[1]);
+    assert_eq!(
+        (outcome.status, outcome.code),
+        ("blocked", Some("recovery_pending"))
+    );
+}
+
+#[test]
+fn aliases_cannot_hide_behind_invisible_characters() {
+    let (fixture, keys) = Fixture::with_three_accounts("alias-invisible");
+    for alias in ["Work\u{202e}", "\u{200b}", "a\u{feff}b"] {
+        assert!(fixture.engine.rename(&keys[0], alias).is_err(), "{alias:?}");
+    }
+}

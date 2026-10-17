@@ -86,8 +86,12 @@ impl StoreData {
                 "Account alias must be 1-{MAX_ALIAS_CHARS} characters"
             ));
         }
-        if alias.chars().any(char::is_control) {
-            return Err("Account alias cannot contain control characters".into());
+        // Control, zero-width and bidi-override characters could disguise one account as another.
+        if alias.chars().any(|character| {
+            character.is_control()
+                || matches!(character, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
+        }) {
+            return Err("Account alias cannot contain control or invisible characters".into());
         }
         if self
             .accounts

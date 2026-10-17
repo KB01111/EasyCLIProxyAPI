@@ -4,6 +4,8 @@ use std::fmt;
 
 /// Refresh/rotation safety margin: an access token this close to expiry counts as expired.
 const ACCESS_TOKEN_SKEW_SECONDS: i64 = 60;
+/// Clock skew tolerated when ranking credentials by their timestamps.
+const GENERATION_SKEW_SECONDS: i64 = 300;
 
 /// OAuth token set. Never printed: `Debug` is redacted and no `Display` exists.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -136,6 +138,11 @@ impl CodexCredential {
     /// account identifier exists at all (the login then cannot be told apart from another).
     pub(crate) fn identity(&self) -> Result<CodexIdentity, String> {
         let id_claims = jwt_claims(&self.tokens.id_token);
+        // The user id lives in the ID token; accepting logins without one would let the same login
+        // derive two different keys depending on which source dropped it.
+        if id_claims.is_none() {
+            return Err("Credential has no readable ID token".into());
+        }
         let access_claims = jwt_claims(&self.tokens.access_token);
         let id_auth = id_claims.as_ref().and_then(auth_claims);
         let access_auth = access_claims.as_ref().and_then(auth_claims);
@@ -162,7 +169,11 @@ impl CodexCredential {
             .and_then(|auth| {
                 claim_string(auth, "chatgpt_user_id").or_else(|| claim_string(auth, "user_id"))
             })
-            .or_else(|| access_auth.and_then(|auth| claim_string(auth, "chatgpt_user_id")))
+            .or_else(|| {
+                access_auth.and_then(|auth| {
+                    claim_string(auth, "chatgpt_user_id").or_else(|| claim_string(auth, "user_id"))
+                })
+            })
             .or_else(|| {
                 id_claims
                     .as_ref()
@@ -199,16 +210,36 @@ impl CodexCredential {
     }
 
     /// Monotonic freshness marker: the later of the access-token issue time and `last_refresh`.
-    pub(crate) fn generation(&self) -> i64 {
+    /// Timestamps beyond `now` plus a small skew are untrusted (the JWTs are unsigned and clocks
+    /// drift), so a forged or mistaken far-future value cannot outrank every genuine refresh.
+    pub(crate) fn generation(&self, now: i64) -> i64 {
+        let trusted = |value: i64| {
+            if value > now + GENERATION_SKEW_SECONDS {
+                0
+            } else {
+                value
+            }
+        };
         let issued = jwt_claims(&self.tokens.access_token)
             .and_then(|claims| claims.get("iat").and_then(serde_json::Value::as_i64))
-            .unwrap_or(0);
+            .map_or(0, trusted);
         let refreshed = self
             .last_refresh
             .as_deref()
             .and_then(parse_timestamp)
-            .unwrap_or(0);
+            .map_or(0, trusted);
         issued.max(refreshed)
+    }
+
+    /// Every part Codex needs to start a session from `auth.json`.
+    pub(crate) fn is_complete(&self) -> bool {
+        [
+            &self.tokens.id_token,
+            &self.tokens.access_token,
+            &self.tokens.refresh_token,
+        ]
+        .iter()
+        .all(|part| !part.trim().is_empty())
     }
 
     pub(crate) fn validity(&self, now: i64) -> CredentialValidity {

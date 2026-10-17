@@ -58,8 +58,20 @@ fn reconcile(entry: &mut VaultEntry, candidate: &CodexCredential, now: i64) -> R
     if entry.credential == *candidate {
         return Reconcile::Same;
     }
-    let (held, offered) = (entry.credential.generation(), candidate.generation());
-    if offered > held {
+    let (held, offered) = (entry.credential.generation(now), candidate.generation(now));
+    // A "newer" copy that lost a token part would downgrade what the vault can do.
+    let loses_parts =
+        |held: &str, offered: &str| !held.trim().is_empty() && offered.trim().is_empty();
+    let downgrades = loses_parts(
+        &entry.credential.tokens.refresh_token,
+        &candidate.tokens.refresh_token,
+    ) || loses_parts(
+        &entry.credential.tokens.id_token,
+        &candidate.tokens.id_token,
+    );
+    if offered > held && downgrades {
+        Reconcile::KeptNewer
+    } else if offered > held {
         entry.credential = candidate.clone();
         entry.updated_at = now;
         Reconcile::Adopted
@@ -461,7 +473,7 @@ impl AccountEngine {
         let (mut store, mut vault) = self.load()?;
         let now = context.now;
         let mut report = self.sync_scan(
-            scan_cpa_directory(context.cpa_dir),
+            scan_cpa_directory(context.cpa_dir, now),
             &mut store,
             &mut vault,
             now,
@@ -481,8 +493,21 @@ impl AccountEngine {
                     if store.account(&identity.key).is_some() {
                         live = "managed";
                         // Capture tokens the native client refreshed since the last visit.
-                        if let Some(entry) = vault.entries.get_mut(&identity.key) {
-                            if reconcile(entry, &credential, now) == Reconcile::Adopted {
+                        match vault.entries.get_mut(&identity.key) {
+                            Some(entry) => {
+                                if reconcile(entry, &credential, now) == Reconcile::Adopted {
+                                    report.dirty_vault = true;
+                                }
+                            }
+                            // A reset vault must not strand the login Codex is using right now.
+                            None => {
+                                vault.entries.insert(
+                                    identity.key.clone(),
+                                    VaultEntry {
+                                        credential,
+                                        updated_at: now,
+                                    },
+                                );
                                 report.dirty_vault = true;
                             }
                         }
@@ -507,6 +532,10 @@ impl AccountEngine {
             }
         }
 
+        // An unreadable auth.json (for example mid-write by Codex) says nothing about who is active.
+        if live == "error" {
+            live_key = store.active_native.clone();
+        }
         if store.active_native != live_key
             // A first observation (nothing remembered yet) is not a change.
             && (store.active_native.is_some() || store.last_switch.is_some())
@@ -754,9 +783,18 @@ impl AccountEngine {
         let state_path = env.codex_home.join(CODEX_NATIVE_OAUTH_STATE_FILE);
         let paths = vec![auth_path.clone(), state_path.clone()];
         let before = config_images(&paths)?;
+        if self.directory.join(JOURNAL_FILE).exists() {
+            return block(
+                "recovery_pending",
+                "A previous account switch was interrupted and is still being recovered; try again in a moment",
+                None,
+            );
+        }
 
         // Identity of whatever Codex holds right now.
         let mut from_key = None;
+        // The live copy of the active account is older than the saved one (another writer refreshed).
+        let mut live_is_stale = false;
         match parse_native_auth(before[0].1.as_deref()) {
             Err(message) => return block("live_auth_corrupt", &message, None),
             Ok(NativeAuth::ApiKey) => {
@@ -770,8 +808,25 @@ impl AccountEngine {
             Ok(NativeAuth::OAuth(live)) => match live.identity() {
                 Err(message) => return block("live_identity_unverifiable", &message, None),
                 Ok(identity) => {
-                    if let Some(entry) = vault.entries.get_mut(&identity.key) {
-                        if reconcile(entry, &live, env.now) == Reconcile::Adopted {
+                    if store.account(&identity.key).is_some() {
+                        let inserted = !vault.entries.contains_key(&identity.key);
+                        if inserted {
+                            // Vault was reset while this login was live: keep the session.
+                            vault.entries.insert(
+                                identity.key.clone(),
+                                VaultEntry {
+                                    credential: live.clone(),
+                                    updated_at: env.now,
+                                },
+                            );
+                        }
+                        let outcome = reconcile(
+                            vault.entries.get_mut(&identity.key).expect("entry exists"),
+                            &live,
+                            env.now,
+                        );
+                        live_is_stale = outcome == Reconcile::KeptNewer;
+                        if inserted || outcome == Reconcile::Adopted {
                             // Persist refreshed tokens first: this is worth keeping even if the switch fails.
                             self.vault.save(&vault)?;
                         }
@@ -788,7 +843,7 @@ impl AccountEngine {
         }
         let mut target_entry = vault.entries.get(target).cloned().unwrap_or(target_entry);
 
-        if from_key.as_deref() == Some(target) {
+        if from_key.as_deref() == Some(target) && !live_is_stale {
             store.active_native = Some(target.to_string());
             save_store(&self.directory, &store)?;
             return Ok(SwitchOutcome {
@@ -820,6 +875,13 @@ impl AccountEngine {
             return block(
                 "target_expired",
                 "This account's login has expired; re-authenticate it first",
+                from_key,
+            );
+        }
+        if !target_entry.credential.is_complete() {
+            return block(
+                "target_incomplete",
+                "The saved credentials are missing token parts; re-authenticate this account",
                 from_key,
             );
         }
@@ -968,7 +1030,11 @@ impl AccountEngine {
         Ok(SwitchOutcome {
             status: "switched",
             code: None,
-            message: format!("Codex now uses {}", record.alias),
+            message: if from_key.as_deref() == Some(target) {
+                format!("Refreshed the Codex login for {}", record.alias)
+            } else {
+                format!("Codex now uses {}", record.alias)
+            },
             from: from_key,
             to: target.to_string(),
             restart_required: true,

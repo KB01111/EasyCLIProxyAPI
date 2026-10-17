@@ -19,7 +19,7 @@ pub(crate) struct CpaScan {
 }
 
 /// Scan the core `auth-dir` for `type: codex` credentials. Never writes to the directory.
-pub(crate) fn scan_cpa_directory(directory: &Path) -> CpaScan {
+pub(crate) fn scan_cpa_directory(directory: &Path, now: i64) -> CpaScan {
     let mut scan = CpaScan::default();
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -83,8 +83,10 @@ pub(crate) fn scan_cpa_directory(directory: &Path) -> CpaScan {
         {
             Some(index) => {
                 let kept = &canonical[index];
-                let (kept_generation, new_generation) =
-                    (kept.credential.generation(), file.credential.generation());
+                let (kept_generation, new_generation) = (
+                    kept.credential.generation(now),
+                    file.credential.generation(now),
+                );
                 let differing_tokens = kept.credential != file.credential;
                 scan.issues.push(if differing_tokens && kept_generation == new_generation {
                     // Two equally fresh but different token sets: which one the core still accepts

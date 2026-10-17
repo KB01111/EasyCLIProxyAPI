@@ -63,6 +63,15 @@ pub(crate) fn validate_accelerator(value: &str) -> Result<String, String> {
         && key
             .chars()
             .all(|character| character.is_ascii_alphanumeric());
+    // Many keyboard layouts type characters with AltGr (= Ctrl+Alt); registering such a chord would
+    // swallow that typing system-wide.
+    if is_character
+        && modifiers.len() == 2
+        && modifiers.contains(&"ctrl")
+        && modifiers.contains(&"alt")
+    {
+        return Err("Ctrl+Alt+letter shortcuts clash with AltGr typing; use a function key (for example Ctrl+Alt+F9)".into());
+    }
     if is_character
         && modifiers.len() == 2
         && modifiers.contains(&"ctrl")
@@ -90,7 +99,7 @@ mod tests {
     fn accepts_distinctive_chords() {
         for accelerator in [
             "Ctrl+Alt+F9",
-            "ctrl + alt + k",
+            "ctrl + alt + shift + k",
             "CommandOrControl+Alt+F10",
             "Alt+Shift+F8",
             "Ctrl+Shift+F12",
@@ -109,6 +118,7 @@ mod tests {
             "Ctrl+Alt+Delete",
             "Ctrl+Shift+Escape",
             "Ctrl+Shift+P",
+            "Ctrl+Alt+K",
             "Ctrl+Ctrl+K",
             "Ctrl+Alt",
             "Ctrl+Alt+K+L",

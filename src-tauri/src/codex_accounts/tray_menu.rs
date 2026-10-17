@@ -200,20 +200,22 @@ pub(crate) fn update_codex_tray(app: &tauri::AppHandle) {
     let Some(menu) = app.try_state::<CodexTrayMenu>() else {
         return;
     };
-    let state = app.state::<CodexAccountsState>();
-    let locale = locale(app);
-    let entries = build_entries(
-        &locale,
-        state.cached_snapshot().as_ref(),
-        &state.quota_summaries(),
-        identity::unix_now(),
-        state.is_busy(),
-        state.status_message().as_deref(),
-    );
     let submenu = menu.0.clone();
     let handle = app.clone();
-    let title = native_text(&locale, NativeText::CodexAccounts);
+    // Entries are computed on the main thread, in queue order, so a stale "Switching…" snapshot
+    // can never be applied after a newer one.
     let _ = app.run_on_main_thread(move || {
+        let state = handle.state::<CodexAccountsState>();
+        let locale = locale(&handle);
+        let entries = build_entries(
+            &locale,
+            state.cached_snapshot().as_ref(),
+            &state.quota_summaries(),
+            identity::unix_now(),
+            state.is_busy(),
+            state.status_message().as_deref(),
+        );
+        let title = native_text(&locale, NativeText::CodexAccounts);
         if let Err(error) = submenu
             .set_text(title)
             .and_then(|_| apply(&submenu, &handle, &entries))
