@@ -1221,3 +1221,18 @@ fn removal_writes_metadata_before_credentials() {
     assert_eq!(snapshot.accounts.len(), 2);
     assert!(snapshot.accounts.iter().all(|a| a.key != keys[2]));
 }
+
+#[test]
+fn duplicate_files_with_equally_fresh_but_different_tokens_are_flagged_as_ambiguous() {
+    let fixture = Fixture::new("dup-ambiguous");
+    let mut twin = fresh(&PERSONAL);
+    twin.tokens.refresh_token = "refresh-other-chain".into();
+    fixture.write_cpa("a.json", &fresh(&PERSONAL), false);
+    fixture.write_cpa("b.json", &twin, false);
+    let snapshot = fixture.state();
+    assert_eq!(snapshot.accounts.len(), 1);
+    assert!(snapshot
+        .issues
+        .iter()
+        .any(|issue| issue.contains("different tokens of equal age")));
+}

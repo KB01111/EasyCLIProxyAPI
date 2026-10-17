@@ -82,11 +82,24 @@ pub(crate) fn scan_cpa_directory(directory: &Path) -> CpaScan {
             .position(|kept| kept.identity.key == file.identity.key)
         {
             Some(index) => {
-                scan.issues.push(format!(
-                    "{} and {} contain the same Codex login",
-                    canonical[index].file_name, file.file_name
-                ));
-                if file.credential.generation() > canonical[index].credential.generation() {
+                let kept = &canonical[index];
+                let (kept_generation, new_generation) =
+                    (kept.credential.generation(), file.credential.generation());
+                let differing_tokens = kept.credential != file.credential;
+                scan.issues.push(if differing_tokens && kept_generation == new_generation {
+                    // Two equally fresh but different token sets: which one the core still accepts
+                    // is unknowable here, so say so instead of implying a safe choice.
+                    format!(
+                        "{} and {} contain the same Codex login with different tokens of equal age; remove the stale file",
+                        kept.file_name, file.file_name
+                    )
+                } else {
+                    format!(
+                        "{} and {} contain the same Codex login",
+                        kept.file_name, file.file_name
+                    )
+                });
+                if new_generation > kept_generation {
                     canonical[index] = file;
                 }
             }
