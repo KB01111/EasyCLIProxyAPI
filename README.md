@@ -124,6 +124,11 @@ You can add multiple connections, search existing entries, refresh provider stat
 through the unified local CLIProxyAPI endpoint. Requests and responses can be converted between
 supported OpenAI, Claude, Gemini, and compatible formats.
 
+Use **Quick setup**, next to *Add*, to create connections from presets: Modal shared endpoints, OpenCode Go and Zen,
+Command Code, and several OpenAI-compatible services (OpenRouter, Groq, Mistral AI, Moonshot AI, Z.ai, Cerebras, and
+Together AI). Enter the key, choose *Find models*, check how each model will be routed, then create the connection.
+Presets only create ordinary connections, so you can edit them afterwards.
+
 ### Plugins
 
 The **Plugins** page manages installed core plugins, their enabled state and typed configuration.

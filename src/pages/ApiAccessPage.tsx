@@ -39,6 +39,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
@@ -81,6 +82,8 @@ import {
 import { modelMatchesRule } from '../services/oauthModels';
 import { normalizeProviderProxyUrl } from '../services/providerProxy';
 import { ProviderGroupKeysEditor } from '../components/ProviderGroupKeysEditor';
+import { ProviderPresetDialog, type ProviderPresetCreated } from '../components/ProviderPresetDialog';
+import { PRESET_ROUTE_SECTIONS } from '../services/providerPresets';
 import { ProviderGroupTemplateFields, ProviderKeyTemplateFields, ProviderModelFields } from '../components/ProviderTemplateFields';
 import { providerText } from '../i18n/providerTemplate';
 import {
@@ -1238,6 +1241,7 @@ export function ApiAccessPage() {
   const [dialogDraft, setDialogDraft] = useState<ProviderDraft>(emptyProviderDraft);
   const [apiAccessRemarks, setApiAccessRemarks] = useState<Record<string, string>>({});
   const [healthDialogRow, setHealthDialogRow] = useState<ProviderRow | null>(null);
+  const [presetDialogOpen, setPresetDialogOpen] = useState(false);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const activeDefinition = definitionFor(activeCategory);
   const activeSection = activeDefinition.section;
@@ -1340,6 +1344,20 @@ export function ApiAccessPage() {
     setEditingRow(null);
     setDialogDraft({ ...createProviderDraft(activeCategory), ...(activeDefinition.openAi ? { groupKeys: [providerKeyDraft({ 'api-key': '' })] } : {}) });
     setDialogOpen(true);
+  };
+
+  const openPresetSetup = () => {
+    feedback.clearNotice();
+    setError('');
+    setPresetDialogOpen(true);
+  };
+
+  const finishPresetSetup = async ({ route, name, models }: ProviderPresetCreated) => {
+    setPresetDialogOpen(false);
+    setActiveCategory(PRESET_ROUTE_SECTIONS[route]);
+    writeSelectedCategory(PRESET_ROUTE_SECTIONS[route]);
+    setNotice(t('apiAccess.presets.created', { name, count: models }));
+    await loadProviders();
   };
 
   const openEdit = (row: ProviderRow) => {
@@ -1635,6 +1653,10 @@ export function ApiAccessPage() {
                 <RefreshCw size={16} aria-hidden="true" />
                 {t('common.refresh')}
               </button>
+              <button type="button" className="secondary-button compact-button" onClick={openPresetSetup} disabled={loading || busy}>
+                <Sparkles size={16} aria-hidden="true" />
+                {t('apiAccess.presets.open')}
+              </button>
               <button type="button" className="primary-button compact-button" onClick={openCreate} disabled={loading || busy}>
                 <Plus size={16} aria-hidden="true" />
                 {t(activeDefinition.openAi ? 'apiAccess.entries.addProvider' : 'apiAccess.entries.addKey')}
@@ -1740,6 +1762,9 @@ export function ApiAccessPage() {
           onClose={() => setDialogOpen(false)}
           onSave={saveProvider}
         />
+      ) : null}
+      {presetDialogOpen ? (
+        <ProviderPresetDialog onClose={() => setPresetDialogOpen(false)} onCreated={finishPresetSetup} />
       ) : null}
       {healthDialogRow ? (
         <ProviderGroupHealthDialog

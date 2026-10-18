@@ -1,0 +1,160 @@
+.config-dialog.management-dialog.provider-preset-dialog {
+  grid-template-rows: auto;
+  grid-auto-rows: auto;
+  width: min(720px, 100%);
+  height: auto;
+  min-height: 0;
+  max-height: min(760px, calc(100dvh - 48px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  gap: 12px;
+  padding: 16px 18px;
+  scrollbar-gutter: stable;
+}
+
+.provider-preset-intro,
+.provider-preset-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.provider-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.provider-preset-card {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+  padding: 12px;
+  text-align: start;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.provider-preset-card:hover,
+.provider-preset-card:focus-visible {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+.provider-preset-card strong,
+.provider-preset-description {
+  overflow-wrap: anywhere;
+}
+
+.provider-preset-description {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.provider-preset-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent-strong);
+}
+
+.provider-preset-logo {
+  width: 20px;
+  height: 20px;
+}
+
+.provider-preset-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.provider-preset-badges small {
+  padding: 1px 7px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.provider-preset-form {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.provider-preset-fields {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.provider-preset-routing {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.provider-preset-routing p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.provider-preset-routing ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.provider-preset-routing li {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.provider-preset-routing li small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-preset-error {
+  margin: 0;
+  color: var(--danger-color);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.provider-preset-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+@media (max-width: 480px) {
+  .provider-preset-grid { grid-template-columns: minmax(0, 1fr); }
+}
